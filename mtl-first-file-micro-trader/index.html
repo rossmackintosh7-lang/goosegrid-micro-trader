@@ -1,0 +1,265 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>GooseGrid Micro Trader | Private Paper Trading Bot</title>
+  <meta name="description" content="Private £10 paper-trading proof bot with profit vault, read-only wallet destination, and risk-first trade logs." />
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <div class="bg-orb orb-a"></div>
+  <div class="bg-orb orb-b"></div>
+
+  <header class="topbar">
+    <a class="brand" href="#top" aria-label="GooseGrid Micro Trader home">
+      <span class="brand-mark">G</span>
+      <span>
+        <strong>GooseGrid</strong>
+        <small>Micro Trader</small>
+      </span>
+    </a>
+    <nav class="nav-links" aria-label="Primary navigation">
+      <a href="#dashboard">Dashboard</a>
+      <a href="#wallet">Wallet</a>
+      <a href="#rules">Rules</a>
+      <a href="#log">Trade Log</a>
+      <a href="#setup">Setup</a>
+    </nav>
+    <button id="refreshBtn" class="ghost-btn" type="button">Refresh</button>
+  </header>
+
+  <main id="top">
+    <section class="hero shell">
+      <div class="hero-copy">
+        <p class="eyebrow">Private proof build · paper trading only</p>
+        <h1>£10 trading pot. Profit vault. Wallet destination. No live orders yet.</h1>
+        <p class="hero-text">
+          This starter build proves your Option A idea: keep a £10 paper trading pot active, skim any simulated profit into a vault, and save your crypto wallet as the future destination once real withdrawals are safe and worthwhile.
+        </p>
+        <div class="hero-actions">
+          <button id="runScanHero" class="primary-btn" type="button">Run market scan</button>
+          <a class="secondary-btn" href="#setup">Start setup</a>
+        </div>
+        <p class="fine-print">No seed phrases. No live trading. No exchange keys. Not financial advice.</p>
+      </div>
+      <aside class="hero-card glass-card" aria-label="Status summary">
+        <div class="status-row">
+          <span>Mode</span>
+          <strong id="heroMode">Balanced</strong>
+        </div>
+        <div class="status-row">
+          <span>Trading pot</span>
+          <strong id="heroPot">£10.00</strong>
+        </div>
+        <div class="status-row">
+          <span>Profit vault</span>
+          <strong id="heroVault">£0.00</strong>
+        </div>
+        <div class="status-row">
+          <span>Position</span>
+          <strong id="heroPosition">None</strong>
+        </div>
+      </aside>
+    </section>
+
+    <section id="dashboard" class="shell dashboard-grid">
+      <article class="glass-card metric-card accent-card">
+        <span class="metric-label">Active paper pot</span>
+        <strong id="tradingPot">£10.00</strong>
+        <small>Bot always tries to reset winners back to £10.</small>
+      </article>
+      <article class="glass-card metric-card profit-card">
+        <span class="metric-label">Profit vault</span>
+        <strong id="profitVault">£0.00</strong>
+        <small>Paper profit skimmed from winning exits.</small>
+      </article>
+      <article class="glass-card metric-card">
+        <span class="metric-label">Wallet destination</span>
+        <strong id="walletShort">Not connected</strong>
+        <small id="walletHint">Connect a wallet below for future profit withdrawals.</small>
+      </article>
+      <article class="glass-card metric-card warning-card">
+        <span class="metric-label">Live trading</span>
+        <strong>Locked</strong>
+        <small>This build cannot place real orders.</small>
+      </article>
+    </section>
+
+    <section class="shell two-col">
+      <article class="glass-card panel">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Market scan</p>
+            <h2>Paper bot control</h2>
+          </div>
+          <span id="scanStatus" class="pill">Idle</span>
+        </div>
+
+        <div class="control-grid">
+          <label>
+            Asset
+            <select id="assetSelect">
+              <option value="bitcoin">BTC/GBP</option>
+              <option value="ethereum">ETH/GBP</option>
+              <option value="solana">SOL/GBP</option>
+            </select>
+          </label>
+          <label>
+            Risk mode
+            <select id="modeSelect">
+              <option value="cautious">Cautious</option>
+              <option value="balanced" selected>Balanced</option>
+              <option value="high_risk">High risk</option>
+            </select>
+          </label>
+          <label>
+            Withdrawal threshold
+            <select id="thresholdSelect">
+              <option value="2500">£25</option>
+              <option value="5000">£50</option>
+              <option value="10000">£100</option>
+            </select>
+          </label>
+        </div>
+
+        <div class="button-row">
+          <button id="saveSettingsBtn" class="secondary-btn" type="button">Save settings</button>
+          <button id="runScanBtn" class="primary-btn" type="button">Run market scan</button>
+          <button id="resetBtn" class="danger-btn" type="button">Reset paper bot</button>
+        </div>
+
+        <div id="scanResult" class="scan-result">Run a scan to let the paper bot decide whether to open, hold, close, or wait.</div>
+      </article>
+
+      <article class="glass-card panel">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Live market</p>
+            <h2>Major coins</h2>
+          </div>
+          <span id="marketUpdated" class="pill">Loading</span>
+        </div>
+        <div id="marketCards" class="market-cards"></div>
+      </article>
+    </section>
+
+    <section id="wallet" class="shell two-col wallet-zone">
+      <article class="glass-card panel">
+        <p class="eyebrow">Wallet destination</p>
+        <h2>Attach your crypto wallet</h2>
+        <p>
+          This only saves your public wallet address as a future profit destination. It does not ask for your seed phrase, does not sign transactions, and does not move funds.
+        </p>
+        <div class="button-row">
+          <button id="connectWalletBtn" class="primary-btn" type="button">Connect wallet</button>
+          <button id="saveWalletBtn" class="secondary-btn" type="button">Save as profit wallet</button>
+        </div>
+        <div class="wallet-box">
+          <span>Connected address</span>
+          <strong id="walletAddress">None</strong>
+        </div>
+      </article>
+
+      <article class="glass-card panel vault-panel">
+        <p class="eyebrow">Withdrawal logic</p>
+        <h2>How profit leaves the bot later</h2>
+        <ol class="clean-list">
+          <li>Bot starts each cycle with a £10 active trading pot.</li>
+          <li>If a winning trade closes above £10, excess is skimmed into the vault.</li>
+          <li>When the vault reaches your threshold, you manually withdraw later.</li>
+          <li>Automatic withdrawals are not enabled in this proof build.</li>
+        </ol>
+      </article>
+    </section>
+
+    <section id="rules" class="shell three-col">
+      <article class="glass-card rule-card">
+        <h3>Cautious</h3>
+        <p>Lower frequency, tighter proof target.</p>
+        <dl>
+          <div><dt>Take profit</dt><dd>1.2%</dd></div>
+          <div><dt>Stop loss</dt><dd>0.8%</dd></div>
+          <div><dt>Signal</dt><dd>Positive but not overheated</dd></div>
+        </dl>
+      </article>
+      <article class="glass-card rule-card featured-rule">
+        <h3>Balanced</h3>
+        <p>Default proof mode for judging if the bot has a sensible rhythm.</p>
+        <dl>
+          <div><dt>Take profit</dt><dd>2%</dd></div>
+          <div><dt>Stop loss</dt><dd>1%</dd></div>
+          <div><dt>Signal</dt><dd>Trend + momentum</dd></div>
+        </dl>
+      </article>
+      <article class="glass-card rule-card high-risk-rule">
+        <h3>High risk</h3>
+        <p>More aggressive paper mode. Still no leverage and no real orders.</p>
+        <dl>
+          <div><dt>Take profit</dt><dd>4%</dd></div>
+          <div><dt>Stop loss</dt><dd>2.5%</dd></div>
+          <div><dt>Signal</dt><dd>Momentum or strong rebound</dd></div>
+        </dl>
+      </article>
+    </section>
+
+    <section id="log" class="shell glass-card panel">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">Proof record</p>
+          <h2>Trade log</h2>
+        </div>
+        <button id="loadHistoryBtn" class="ghost-btn" type="button">Reload log</button>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Time</th>
+              <th>Asset</th>
+              <th>Action</th>
+              <th>Entry</th>
+              <th>Exit</th>
+              <th>P/L</th>
+              <th>Reason</th>
+            </tr>
+          </thead>
+          <tbody id="tradeTableBody">
+            <tr><td colspan="7">No trades yet.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="setup" class="shell glass-card panel setup-panel">
+      <p class="eyebrow">First-run setup</p>
+      <h2>What to do after uploading</h2>
+      <div class="setup-grid">
+        <div>
+          <h3>1. Deploy the site</h3>
+          <p>Upload this starter project to GitHub, connect it to Cloudflare Pages, and deploy with no build step.</p>
+        </div>
+        <div>
+          <h3>2. Add D1</h3>
+          <p>Create the D1 database, run the schema, add the DB binding, and redeploy.</p>
+        </div>
+        <div>
+          <h3>3. Connect wallet</h3>
+          <p>Connect your browser wallet so the app can save your public profit destination.</p>
+        </div>
+        <div>
+          <h3>4. Prove the bot</h3>
+          <p>Run scans in paper mode and judge the trade log before we ever add live exchange keys.</p>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer shell">
+    <span>GooseGrid Micro Trader · Private proof build</span>
+    <span>Paper trading only · Not financial advice · Crypto can lose money quickly</span>
+  </footer>
+
+  <script src="./script.js" defer></script>
+</body>
+</html>

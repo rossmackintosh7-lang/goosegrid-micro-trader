@@ -1,0 +1,11 @@
+name = "goosegrid-micro-trader-scheduler"
+main = "micro-trader-worker.js"
+compatibility_date = "2026-05-10"
+
+# Optional later. This runs every hour in UTC.
+# Do not deploy the worker until your Pages site is live and you have set SCAN_URL.
+[triggers]
+crons = ["0 * * * *"]
+
+[vars]
+SCAN_URL = "https://YOUR-PAGES-SITE.pages.dev/api/scan"
