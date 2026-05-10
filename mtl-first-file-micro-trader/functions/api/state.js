@@ -1,11 +1,13 @@
-import { getDb, json, loadState } from '../_lib/bot.js';
+import { errorJson, getDb, json, loadState, methodNotAllowed } from '../_lib/bot.js';
 
-export async function onRequestGet({ env }) {
+export async function onRequest(context) {
+  if (context.request.method !== 'GET') return methodNotAllowed('GET');
+
   try {
-    const db = await getDb(env);
+    const db = getDb(context.env);
     const state = await loadState(db);
-    return json({ state });
+    return json({ ok: true, state });
   } catch (error) {
-    return json({ error: error.message }, 500);
+    return errorJson(error);
   }
 }

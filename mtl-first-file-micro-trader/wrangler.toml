@@ -2,13 +2,7 @@ name = "goosegrid-micro-trader"
 compatibility_date = "2026-05-10"
 pages_build_output_dir = "."
 
-# After creating your D1 database, add the binding in Cloudflare Dashboard:
-# Workers & Pages -> your Pages project -> Settings -> Bindings -> D1 database
-# Variable name: DB
-# Database: mtl_micro_trader
-#
-# Or uncomment and fill this after running: npx wrangler d1 create mtl_micro_trader
-# [[d1_databases]]
-# binding = "DB"
-# database_name = "mtl_micro_trader"
-# database_id = "PASTE_YOUR_DATABASE_ID_HERE"
+[[d1_databases]]
+binding = "DB"
+database_name = "mtl_micro_trader"
+database_id = "41f648ae-25de-47af-bcd9-5d36a80b9164"

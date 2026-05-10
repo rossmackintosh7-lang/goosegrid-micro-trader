@@ -1,11 +1,13 @@
-import { getDb, json, loadTrades } from '../_lib/bot.js';
+import { errorJson, getDb, json, loadTrades, methodNotAllowed } from '../_lib/bot.js';
 
-export async function onRequestGet({ env }) {
+export async function onRequest(context) {
+  if (context.request.method !== 'GET') return methodNotAllowed('GET');
+
   try {
-    const db = await getDb(env);
+    const db = getDb(context.env);
     const trades = await loadTrades(db, 40);
-    return json({ trades });
+    return json({ ok: true, trades });
   } catch (error) {
-    return json({ error: error.message }, 500);
+    return errorJson(error);
   }
 }

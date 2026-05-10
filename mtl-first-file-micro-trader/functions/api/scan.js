@@ -3,22 +3,33 @@ import {
   MODES,
   PAIRS,
   chooseSignal,
+  errorJson,
+  findMarket,
   getDb,
   getMarketSnapshot,
   insertTrade,
   json,
   loadState,
-  loadTrades
+  loadTrades,
+  methodNotAllowed
 } from '../_lib/bot.js';
 
-export async function onRequestPost({ request, env }) {
+async function readScanBody(request) {
+  if (request.method === 'GET') return {};
+  return await request.json().catch(() => ({}));
+}
+
+export async function onRequest(context) {
+  const { request, env } = context;
+  if (!['GET', 'POST'].includes(request.method)) return methodNotAllowed('GET or POST');
+
   try {
-    const body = await request.json().catch(() => ({}));
+    const body = await readScanBody(request);
     const requestedSymbol = PAIRS[body.symbol] ? body.symbol : null;
     const requestedMode = MODES[body.mode] ? body.mode : null;
     const requestedThreshold = Number(body.withdrawal_threshold_pence || 0) || null;
 
-    const db = await getDb(env);
+    const db = getDb(env);
     let state = await loadState(db);
 
     const symbol = requestedSymbol || state.symbol || 'bitcoin';
@@ -34,9 +45,9 @@ export async function onRequestPost({ request, env }) {
     state = await loadState(db);
     const snapshot = await getMarketSnapshot(db, { maxAgeSeconds: 180, allowStale: true });
     const markets = snapshot.markets;
-    const market = markets[symbol];
+    const market = findMarket(markets, symbol);
     if (!market || !market.gbp) {
-      return json({ error: `No GBP market data returned for ${symbol}.` }, 500);
+      return json({ ok: false, error: `No GBP market data returned for ${symbol}.` }, 500);
     }
 
     const currentPrice = Number(market.gbp);
@@ -44,6 +55,7 @@ export async function onRequestPost({ request, env }) {
     const active = state.active_position;
     let action = 'WAIT';
     let message = '';
+    let trade = null;
 
     if (active) {
       const entry = Number(active.entry_price);
@@ -54,28 +66,33 @@ export async function onRequestPost({ request, env }) {
 
       if (pnlPct >= rules.takeProfitPct) {
         const skimmed = Math.max(0, potAfterRaw - STARTING_POT_PENCE);
+        const finalPot = potAfterRaw > STARTING_POT_PENCE ? STARTING_POT_PENCE : potAfterRaw;
         const newVault = Number(state.profit_vault_pence || 0) + skimmed;
-        await insertTrade(db, {
+        trade = await insertTrade(db, {
           symbol,
           action: 'TAKE_PROFIT',
           entry_price: entry,
           exit_price: currentPrice,
           pot_before_pence: potBefore,
-          pot_after_pence: STARTING_POT_PENCE,
-          pnl_pence: skimmed,
+          pot_after_pence: finalPot,
+          pnl_pence: pnlPence,
           pnl_pct: pnlPct,
-          reason: `Take-profit hit at ${pnlPct.toFixed(2)}%. Skimmed ${skimmed}p into vault and reset pot to £10.`,
+          reason: skimmed > 0
+            ? `Take-profit hit at ${pnlPct.toFixed(2)}%. Skimmed ${skimmed}p into vault and reset pot to £10.`
+            : `Take-profit hit at ${pnlPct.toFixed(2)}%. Pot stayed below £10, so no vault skim was made.`,
           mode
         });
         await db.prepare(`
           UPDATE bot_state
           SET trading_pot_pence = ?, profit_vault_pence = ?, active_position_json = NULL, updated_at = datetime('now')
           WHERE id = 'main'
-        `).bind(STARTING_POT_PENCE, newVault).run();
+        `).bind(finalPot, newVault).run();
         action = 'TAKE_PROFIT';
-        message = `Paper take-profit hit on ${PAIRS[symbol]} at £${currentPrice.toFixed(2)}. Profit was skimmed into the vault; trading pot reset to £10.`;
+        message = skimmed > 0
+          ? `Paper take-profit hit on ${PAIRS[symbol]} at £${currentPrice.toFixed(2)}. Profit was skimmed into the vault; trading pot reset to £10.`
+          : `Paper take-profit hit on ${PAIRS[symbol]} at £${currentPrice.toFixed(2)}. Trading pot is now £${(finalPot / 100).toFixed(2)}.`;
       } else if (pnlPct <= rules.stopLossPct) {
-        await insertTrade(db, {
+        trade = await insertTrade(db, {
           symbol,
           action: 'STOP_LOSS',
           entry_price: entry,
@@ -114,7 +131,7 @@ export async function onRequestPost({ request, env }) {
           SET active_position_json = ?, updated_at = datetime('now')
           WHERE id = 'main'
         `).bind(JSON.stringify(position)).run();
-        await insertTrade(db, {
+        trade = await insertTrade(db, {
           symbol,
           action: 'PAPER_BUY',
           entry_price: currentPrice,
@@ -149,8 +166,8 @@ export async function onRequestPost({ request, env }) {
 
     const newState = await loadState(db);
     const trades = await loadTrades(db, 40);
-    return json({ action, message, state: newState, markets, trades, market_source: snapshot.source, market_warning: snapshot.warning || null });
+    return json({ ok: true, action, message, state: newState, market, markets, trades, trade, market_source: snapshot.source, market_warning: snapshot.warning || null });
   } catch (error) {
-    return json({ error: error.message }, 500);
+    return errorJson(error);
   }
 }

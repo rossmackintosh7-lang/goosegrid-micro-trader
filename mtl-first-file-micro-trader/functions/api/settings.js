@@ -1,12 +1,14 @@
-import { getDb, json, loadState, MODES, PAIRS } from '../_lib/bot.js';
+import { errorJson, getDb, json, loadState, methodNotAllowed, MODES, PAIRS } from '../_lib/bot.js';
 
-export async function onRequestPost({ request, env }) {
+export async function onRequest(context) {
+  if (context.request.method !== 'POST') return methodNotAllowed('POST');
+
   try {
-    const body = await request.json();
+    const body = await context.request.json();
     const symbol = PAIRS[body.symbol] ? body.symbol : 'bitcoin';
     const mode = MODES[body.mode] ? body.mode : 'balanced';
     const threshold = Number(body.withdrawal_threshold_pence || 2500);
-    const db = await getDb(env);
+    const db = getDb(context.env);
     await loadState(db);
     await db.prepare(`
       UPDATE bot_state
@@ -14,8 +16,8 @@ export async function onRequestPost({ request, env }) {
       WHERE id = 'main'
     `).bind(symbol, mode, threshold).run();
     const state = await loadState(db);
-    return json({ state });
+    return json({ ok: true, state });
   } catch (error) {
-    return json({ error: error.message }, 500);
+    return errorJson(error);
   }
 }

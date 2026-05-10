@@ -1,17 +1,19 @@
-import { getDb, json, loadState } from '../_lib/bot.js';
+import { errorJson, getDb, json, loadState, methodNotAllowed } from '../_lib/bot.js';
 
 function isLikelyEvmAddress(address) {
   return typeof address === 'string' && /^0x[a-fA-F0-9]{40}$/.test(address);
 }
 
-export async function onRequestPost({ request, env }) {
+export async function onRequest(context) {
+  if (context.request.method !== 'POST') return methodNotAllowed('POST');
+
   try {
-    const body = await request.json();
+    const body = await context.request.json();
     const wallet = String(body.wallet_address || '').trim();
     if (!isLikelyEvmAddress(wallet)) {
-      return json({ error: 'That does not look like a valid EVM wallet address.' }, 400);
+      return json({ ok: false, error: 'That does not look like a valid EVM wallet address.' }, 400);
     }
-    const db = await getDb(env);
+    const db = getDb(context.env);
     await loadState(db);
     await db.prepare(`
       UPDATE bot_state
@@ -19,8 +21,8 @@ export async function onRequestPost({ request, env }) {
       WHERE id = 'main'
     `).bind(wallet).run();
     const state = await loadState(db);
-    return json({ state });
+    return json({ ok: true, state });
   } catch (error) {
-    return json({ error: error.message }, 500);
+    return errorJson(error);
   }
 }

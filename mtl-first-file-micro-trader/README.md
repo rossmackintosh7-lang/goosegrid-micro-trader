@@ -25,7 +25,7 @@ This is a paper-trading proof system, not a live trading bot.
 
 Framework preset: None
 Build command: exit 0
-Build output directory: /
+Build output directory: .
 
 ## D1
 
@@ -41,6 +41,7 @@ Add a D1 binding to your Pages project:
 
 Variable name: DB
 Database: mtl_micro_trader
+Database ID: 41f648ae-25de-47af-bcd9-5d36a80b9164
 
 Redeploy after adding the binding.
 

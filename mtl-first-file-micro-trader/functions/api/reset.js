@@ -1,8 +1,10 @@
-import { getDb, json, loadState, STARTING_POT_PENCE } from '../_lib/bot.js';
+import { errorJson, getDb, json, loadState, methodNotAllowed, STARTING_POT_PENCE } from '../_lib/bot.js';
 
-export async function onRequestPost({ env }) {
+export async function onRequest(context) {
+  if (context.request.method !== 'POST') return methodNotAllowed('POST');
+
   try {
-    const db = await getDb(env);
+    const db = getDb(context.env);
     await loadState(db);
     await db.prepare(`
       UPDATE bot_state
@@ -10,8 +12,8 @@ export async function onRequestPost({ env }) {
       WHERE id = 'main'
     `).bind(STARTING_POT_PENCE, STARTING_POT_PENCE).run();
     const state = await loadState(db);
-    return json({ state });
+    return json({ ok: true, state });
   } catch (error) {
-    return json({ error: error.message }, 500);
+    return errorJson(error);
   }
 }

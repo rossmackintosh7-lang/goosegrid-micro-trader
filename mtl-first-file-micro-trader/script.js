@@ -40,6 +40,7 @@ async function api(path, options = {}) {
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || `Request failed: ${res.status}`);
+  if (data.ok === false) throw new Error(data.error || 'Request failed');
   return data;
 }
 
@@ -70,25 +71,33 @@ function renderState(state) {
   }
 }
 
-function renderMarkets(markets) {
-  const rows = Object.entries(markets || {}).map(([id, item]) => {
+function marketList(markets) {
+  if (Array.isArray(markets)) return markets;
+  return Object.entries(markets || {}).map(([id, item]) => ({ id, ...item }));
+}
+
+function renderMarkets(markets, source = '') {
+  const rows = marketList(markets).map((item) => {
+    const id = item.id;
+    const price = Number(item.gbp ?? item.current_price ?? 0);
+    const volume = Number(item.gbp_24h_vol ?? item.total_volume ?? 0);
     const change = Number(item.gbp_24h_change || 0);
     const cls = change >= 0 ? 'change-up' : 'change-down';
     return `
       <div class="market-card">
         <div>
-          <strong>${pairLabel(id)}</strong><br />
-          <small>24h volume: ${item.gbp_24h_vol ? `£${Math.round(item.gbp_24h_vol).toLocaleString()}` : 'n/a'}</small>
+          <strong>${item.pair_label || pairLabel(id)}</strong><br />
+          <small>24h volume: ${volume ? `£${Math.round(volume).toLocaleString()}` : 'n/a'}</small>
         </div>
         <div>
-          <strong>£${Number(item.gbp || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}</strong><br />
+          <strong>£${price.toLocaleString(undefined, { maximumFractionDigits: 2 })}</strong><br />
           <small class="${cls}">${change.toFixed(2)}%</small>
         </div>
       </div>
     `;
   }).join('');
   els.marketCards.innerHTML = rows || '<p>No market data yet.</p>';
-  els.marketUpdated.textContent = 'Live-ish';
+  els.marketUpdated.textContent = ({ coingecko: 'Live-ish', cache: 'Cached', 'stale-cache': 'Stale cache' }[source]) || 'Live-ish';
 }
 
 function renderTrades(trades) {
@@ -122,7 +131,7 @@ async function loadAll() {
       api('/api/history')
     ]);
     renderState(stateData.state);
-    renderMarkets(marketData.markets);
+    renderMarkets(marketData.markets, marketData.source);
     renderTrades(historyData.trades);
   } catch (err) {
     els.scanResult.textContent = err.message;
@@ -165,7 +174,7 @@ async function runScan() {
       })
     });
     renderState(data.state);
-    renderMarkets(data.markets);
+    renderMarkets(data.markets, data.market_source);
     renderTrades(data.trades);
     els.scanResult.textContent = data.message;
     els.scanStatus.textContent = data.action || 'Done';
