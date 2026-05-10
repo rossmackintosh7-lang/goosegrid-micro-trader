@@ -43,3 +43,19 @@ Variable name: DB
 Database: mtl_micro_trader
 
 Redeploy after adding the binding.
+
+
+## v1.1 rate-limit fix
+This version caches CoinGecko market data in D1 for 3 minutes. The app uses the cache for scans so pressing Refresh and Run market scan no longer causes back-to-back CoinGecko calls. If CoinGecko returns 429, the app falls back to the most recent cached market snapshot when available.
+
+If you already created the D1 database, run this SQL once:
+
+```sql
+CREATE TABLE IF NOT EXISTS market_cache (
+  id TEXT PRIMARY KEY,
+  markets_json TEXT NOT NULL,
+  source TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+```

@@ -3,8 +3,8 @@ import {
   MODES,
   PAIRS,
   chooseSignal,
-  fetchMarkets,
   getDb,
+  getMarketSnapshot,
   insertTrade,
   json,
   loadState,
@@ -32,7 +32,8 @@ export async function onRequestPost({ request, env }) {
     `).bind(symbol, mode, threshold).run();
 
     state = await loadState(db);
-    const markets = await fetchMarkets();
+    const snapshot = await getMarketSnapshot(db, { maxAgeSeconds: 180, allowStale: true });
+    const markets = snapshot.markets;
     const market = markets[symbol];
     if (!market || !market.gbp) {
       return json({ error: `No GBP market data returned for ${symbol}.` }, 500);
@@ -148,7 +149,7 @@ export async function onRequestPost({ request, env }) {
 
     const newState = await loadState(db);
     const trades = await loadTrades(db, 40);
-    return json({ action, message, state: newState, markets, trades });
+    return json({ action, message, state: newState, markets, trades, market_source: snapshot.source, market_warning: snapshot.warning || null });
   } catch (error) {
     return json({ error: error.message }, 500);
   }
