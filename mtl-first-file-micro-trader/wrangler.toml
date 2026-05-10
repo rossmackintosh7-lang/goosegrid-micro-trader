@@ -11,4 +11,4 @@ pages_build_output_dir = "."
 # [[d1_databases]]
 # binding = "DB"
 # database_name = "mtl_micro_trader"
-# database_id = "PASTE_YOUR_DATABASE_ID_HERE"
+# database_id = "41f648ae-25de-47af-bcd9-5d36a80b9164"
