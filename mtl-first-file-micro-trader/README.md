@@ -47,6 +47,8 @@ Database ID: 41f648ae-25de-47af-bcd9-5d36a80b9164
 
 Redeploy after adding the binding.
 
+Preview deployments without the `DB` binding fall back to browser storage so the app can still remember the wallet, settings, open practice position, and local trade log in that browser. Production should still use D1.
+
 
 ## v1.1 rate-limit fix
 This version caches CoinGecko market data in D1 for 3 minutes. The app uses the cache for scans so pressing Refresh and Run market scan no longer causes back-to-back CoinGecko calls. If CoinGecko returns 429, the app falls back to the most recent cached market snapshot when available.

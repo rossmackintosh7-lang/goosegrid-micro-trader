@@ -54,6 +54,9 @@ let connectedWallet = '';
 let appBusy = false;
 let lastAutoRefreshAt = 0;
 
+const LOCAL_STORE_KEY = 'goosegrid.microTrader.localState.v2';
+const COINGECKO_MARKETS_URL = 'https://api.coingecko.com/api/v3/coins/markets?vs_currency=gbp&ids=bitcoin,ethereum,solana&order=market_cap_desc&per_page=3&page=1&sparkline=false&price_change_percentage=24h';
+
 const formatGBP = (pence) => `£${(Number(pence || 0) / 100).toFixed(2)}`;
 const formatAmount = (pence) => `£${(Number(pence || 0) / 100).toFixed(2)}`;
 const formatPrice = (price) => Number(price || 0) ? `£${Number(price).toLocaleString(undefined, { maximumFractionDigits: 2 })}` : '-';
@@ -72,9 +75,158 @@ async function api(path, options = {}) {
     ...options
   });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || `Request failed: ${res.status}`);
-  if (data.ok === false) throw new Error(data.error || 'Request failed');
+  if (!res.ok || data.ok === false) {
+    const error = new Error(data.error || `Request failed: ${res.status}`);
+    error.d1Missing = /D1 binding missing/i.test(error.message);
+    throw error;
+  }
   return data;
+}
+
+function defaultLocalStore() {
+  return {
+    state: {
+      id: 'main',
+      trading_pot_pence: 1000,
+      profit_vault_pence: 0,
+      starting_pot_pence: 1000,
+      active_position_json: null,
+      active_position: null,
+      symbol: 'bitcoin',
+      mode: 'balanced',
+      trading_environment: 'practice',
+      wallet_address: '',
+      withdrawal_threshold_pence: 2500
+    },
+    trades: [],
+    markets: [],
+    market_source: 'browser',
+    updated_at: new Date().toISOString()
+  };
+}
+
+function readLocalStore() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(LOCAL_STORE_KEY) || 'null');
+    if (!parsed?.state) return defaultLocalStore();
+    return {
+      ...defaultLocalStore(),
+      ...parsed,
+      state: { ...defaultLocalStore().state, ...parsed.state }
+    };
+  } catch {
+    return defaultLocalStore();
+  }
+}
+
+function writeLocalStore(store) {
+  localStorage.setItem(LOCAL_STORE_KEY, JSON.stringify({
+    ...store,
+    updated_at: new Date().toISOString()
+  }));
+}
+
+function normaliseClientMarkets(rawMarkets) {
+  const rows = Array.isArray(rawMarkets)
+    ? rawMarkets
+    : Object.entries(rawMarkets || {}).map(([id, item]) => ({ id, ...item }));
+
+  return rows
+    .map((item) => {
+      const id = ['bitcoin', 'ethereum', 'solana'].includes(item.id) ? item.id : String(item.id || '').toLowerCase();
+      if (!['bitcoin', 'ethereum', 'solana'].includes(id)) return null;
+      return {
+        id,
+        pair_label: pairLabel(id),
+        symbol: String(item.symbol || id).toUpperCase(),
+        name: item.name || id,
+        image: item.image || null,
+        gbp: Number(item.gbp ?? item.current_price ?? 0),
+        gbp_24h_change: Number(item.gbp_24h_change ?? item.price_change_percentage_24h_in_currency ?? item.price_change_percentage_24h ?? 0),
+        gbp_24h_vol: Number(item.gbp_24h_vol ?? item.total_volume ?? 0),
+        market_cap: Number(item.market_cap ?? item.gbp_market_cap ?? 0)
+      };
+    })
+    .filter(Boolean);
+}
+
+function findClientMarket(markets, symbol) {
+  return normaliseClientMarkets(markets).find((market) => market.id === symbol) || null;
+}
+
+async function fetchBrowserMarkets() {
+  const store = readLocalStore();
+  try {
+    const res = await fetch(COINGECKO_MARKETS_URL, { headers: { Accept: 'application/json' } });
+    if (!res.ok) throw new Error(`CoinGecko market data failed with status ${res.status}`);
+    const markets = normaliseClientMarkets(await res.json());
+    writeLocalStore({ ...store, markets, market_source: 'browser-coingecko' });
+    return { ok: true, markets, source: 'browser-coingecko' };
+  } catch {
+    return { ok: true, markets: store.markets || [], source: store.markets?.length ? 'browser-cache' : 'browser-empty' };
+  }
+}
+
+function localAnalysis(store) {
+  const state = store.state || defaultLocalStore().state;
+  const position = state.active_position;
+  const markets = normaliseClientMarkets(store.markets || []);
+  if (!position) {
+    return {
+      ok: true,
+      state,
+      position_analysis: {
+        has_position: false,
+        signal_label: 'No open trade',
+        message: 'Open a practice position to get live sell guidance.'
+      },
+      market_analysis: markets.map((market) => marketPrediction(market)),
+      market_source: store.market_source || 'browser'
+    };
+  }
+
+  const market = findClientMarket(markets, position.symbol);
+  const modeRules = {
+    cautious: { takeProfitPct: 1.2, stopLossPct: -0.8 },
+    balanced: { takeProfitPct: 2, stopLossPct: -1 },
+    high_risk: { takeProfitPct: 4, stopLossPct: -2.5 }
+  }[state.mode] || { takeProfitPct: 2, stopLossPct: -1 };
+  const entry = Number(position.entry_price || 0);
+  const current = Number(market?.gbp || entry);
+  const size = Number(position.position_size_pence || position.pot_at_entry_pence || state.trading_pot_pence || 1000);
+  const pnlPct = entry ? ((current - entry) / entry) * 100 : 0;
+  const pnlPence = Math.round(size * (pnlPct / 100));
+  const targetPrice = entry * (1 + modeRules.takeProfitPct / 100);
+  const stopPrice = entry * (1 + modeRules.stopLossPct / 100);
+  const signalLabel = pnlPct >= modeRules.takeProfitPct ? 'Sell signal' : pnlPct <= modeRules.stopLossPct ? 'Risk exit' : 'Hold / watch';
+
+  return {
+    ok: true,
+    state,
+    position_analysis: {
+      has_position: true,
+      signal_label: signalLabel,
+      message: signalLabel === 'Sell signal'
+        ? `Target reached at ${pnlPct.toFixed(2)}% P/L. Consider closing the practice trade or tightening your stop.`
+        : signalLabel === 'Risk exit'
+          ? `Stop line reached at ${pnlPct.toFixed(2)}% P/L. Consider closing the practice trade to limit the loss.`
+          : `Watching ${pairLabel(position.symbol)}. Target is £${targetPrice.toFixed(2)} and stop line is £${stopPrice.toFixed(2)}.`,
+      pnl_pence: pnlPence,
+      pnl_pct: pnlPct,
+      target_price: targetPrice,
+      stop_price: stopPrice
+    },
+    market_analysis: markets.map((marketRow) => marketPrediction(marketRow)),
+    market_source: store.market_source || 'browser',
+    updated_at: new Date().toISOString()
+  };
+}
+
+function marketPrediction(market) {
+  const change = Number(market.gbp_24h_change || 0);
+  if (change >= 0.5) return { symbol: market.id, pair_label: pairLabel(market.id), direction: 'UP', label: change >= 2 ? 'Strong momentum' : 'Positive momentum', confidence: 'medium', change_24h: change };
+  if (change <= -0.5) return { symbol: market.id, pair_label: pairLabel(market.id), direction: 'DOWN', label: change <= -2 ? 'Sell pressure' : 'Softening', confidence: 'medium', change_24h: change };
+  return { symbol: market.id, pair_label: pairLabel(market.id), direction: 'SIDEWAYS', label: 'Range / wait', confidence: 'medium', change_24h: change };
 }
 
 function setBusy(isBusy) {
@@ -247,6 +399,140 @@ function renderAnalysis(data) {
   `).join('') || '<p>No predictions yet.</p>';
 }
 
+async function renderLocalMode(message = 'Using browser memory because this deployment has no D1 binding. Your wallet, settings, open practice trade and trade log are saved in this browser.') {
+  const store = readLocalStore();
+  const marketData = await fetchBrowserMarkets();
+  const nextStore = { ...readLocalStore(), markets: marketData.markets, market_source: marketData.source };
+  writeLocalStore(nextStore);
+  renderState(nextStore.state);
+  renderMarkets(nextStore.markets, nextStore.market_source);
+  renderTrades(nextStore.trades);
+  renderAnalysis(localAnalysis(nextStore));
+  els.scanStatus.textContent = 'Local';
+  els.scanResult.textContent = message;
+}
+
+function saveLocalSettings() {
+  const store = readLocalStore();
+  store.state = {
+    ...store.state,
+    symbol: els.assetSelect.value,
+    mode: els.modeSelect.value,
+    trading_environment: els.environmentSelect.value,
+    withdrawal_threshold_pence: Number(els.thresholdSelect.value)
+  };
+  writeLocalStore(store);
+  renderState(store.state);
+  els.scanResult.textContent = 'Settings saved in this browser. D1 is unavailable on this deployment.';
+}
+
+function saveLocalWallet(wallet) {
+  const store = readLocalStore();
+  store.state = { ...store.state, wallet_address: wallet };
+  writeLocalStore(store);
+  renderState(store.state);
+  els.scanResult.textContent = 'Wallet saved in this browser. D1 is unavailable on this deployment.';
+}
+
+async function placeLocalOrder(side) {
+  const store = readLocalStore();
+  const state = store.state;
+  if (els.environmentSelect.value === 'real') {
+    els.orderResult.textContent = 'Real trading is locked. Switch to Practice to manage browser-saved practice trades.';
+    return;
+  }
+
+  const marketData = await fetchBrowserMarkets();
+  store.markets = marketData.markets;
+  store.market_source = marketData.source;
+
+  const symbol = els.tradeAssetSelect.value || state.symbol || 'bitcoin';
+  const market = findClientMarket(store.markets, symbol);
+  if (!market?.gbp) {
+    els.orderResult.textContent = 'No market price is available yet. Refresh and try again.';
+    writeLocalStore(store);
+    return;
+  }
+
+  if (side === 'BUY') {
+    if (state.active_position) {
+      els.orderResult.textContent = `Practice position already open on ${pairLabel(state.active_position.symbol)}. Sell it before buying again.`;
+      return;
+    }
+    const amountPence = Math.min(Math.max(100, Math.round(Number(els.orderAmount.value || 0) * 100)), Number(state.trading_pot_pence || 1000));
+    const position = {
+      symbol,
+      pair_label: pairLabel(symbol),
+      entry_price: Number(market.gbp),
+      entered_at: new Date().toISOString(),
+      mode: state.mode,
+      environment: 'practice',
+      position_size_pence: amountPence,
+      quantity_estimate: amountPence / 100 / Number(market.gbp)
+    };
+    state.symbol = symbol;
+    state.active_position = position;
+    state.active_position_json = JSON.stringify(position);
+    store.trades = [{
+      id: crypto.randomUUID(),
+      symbol,
+      action: 'PRACTICE_BUY',
+      entry_price: Number(market.gbp),
+      exit_price: null,
+      pot_before_pence: state.trading_pot_pence,
+      pot_after_pence: state.trading_pot_pence,
+      pnl_pence: 0,
+      pnl_pct: 0,
+      reason: `Browser-saved practice buy opened for ${formatGBP(amountPence)} at £${Number(market.gbp).toFixed(2)}.`,
+      mode: state.mode,
+      environment: 'practice',
+      created_at: new Date().toISOString()
+    }, ...(store.trades || [])].slice(0, 40);
+    els.orderResult.textContent = `Practice buy saved in this browser on ${pairLabel(symbol)} for ${formatGBP(amountPence)}.`;
+  } else {
+    const active = state.active_position;
+    if (!active) {
+      els.orderResult.textContent = 'No open practice position to sell.';
+      return;
+    }
+    const activeMarket = findClientMarket(store.markets, active.symbol) || market;
+    const exitPrice = Number(activeMarket.gbp || active.entry_price);
+    const entryPrice = Number(active.entry_price);
+    const positionSize = Number(active.position_size_pence || active.pot_at_entry_pence || state.trading_pot_pence || 1000);
+    const potBefore = Number(state.trading_pot_pence || 1000);
+    const pnlPct = entryPrice ? ((exitPrice - entryPrice) / entryPrice) * 100 : 0;
+    const pnlPence = Math.round(positionSize * (pnlPct / 100));
+    const potAfterRaw = Math.max(0, potBefore + pnlPence);
+    const skimmed = Math.max(0, potAfterRaw - 1000);
+    state.trading_pot_pence = skimmed > 0 ? 1000 : potAfterRaw;
+    state.profit_vault_pence = Number(state.profit_vault_pence || 0) + skimmed;
+    state.active_position = null;
+    state.active_position_json = null;
+    store.trades = [{
+      id: crypto.randomUUID(),
+      symbol: active.symbol,
+      action: 'PRACTICE_SELL',
+      entry_price: entryPrice,
+      exit_price: exitPrice,
+      pot_before_pence: potBefore,
+      pot_after_pence: state.trading_pot_pence,
+      pnl_pence: pnlPence,
+      pnl_pct: pnlPct,
+      reason: `Browser-saved practice sell closed at ${pnlPct.toFixed(2)}%.`,
+      mode: state.mode,
+      environment: 'practice',
+      created_at: new Date().toISOString()
+    }, ...(store.trades || [])].slice(0, 40);
+    els.orderResult.textContent = `Practice sell saved in this browser. P/L ${formatGBP(pnlPence)}.`;
+  }
+
+  writeLocalStore(store);
+  renderState(store.state);
+  renderMarkets(store.markets, store.market_source);
+  renderTrades(store.trades);
+  renderAnalysis(localAnalysis(store));
+}
+
 async function loadAll() {
   try {
     setBusy(true);
@@ -261,7 +547,11 @@ async function loadAll() {
     const analysisData = await api('/api/analysis');
     renderAnalysis(analysisData);
   } catch (err) {
-    els.scanResult.textContent = err.message;
+    if (err.d1Missing) {
+      await renderLocalMode();
+    } else {
+      els.scanResult.textContent = err.message;
+    }
     console.error(err);
   } finally {
     setBusy(false);
@@ -283,7 +573,8 @@ async function saveSettings() {
     renderState(data.state);
     els.scanResult.textContent = 'Settings saved. Paper bot rules updated.';
   } catch (err) {
-    els.scanResult.textContent = err.message;
+    if (err.d1Missing) saveLocalSettings();
+    else els.scanResult.textContent = err.message;
   } finally {
     setBusy(false);
   }
@@ -309,8 +600,12 @@ async function runScan() {
     els.scanResult.textContent = data.message;
     els.scanStatus.textContent = data.action || 'Done';
   } catch (err) {
-    els.scanResult.textContent = err.message;
-    els.scanStatus.textContent = 'Error';
+    if (err.d1Missing) {
+      await renderLocalMode('D1 is unavailable on this deployment. Live monitor is using browser-saved practice state.');
+    } else {
+      els.scanResult.textContent = err.message;
+      els.scanStatus.textContent = 'Error';
+    }
   } finally {
     setBusy(false);
   }
@@ -337,7 +632,8 @@ async function placeOrder(side) {
     renderAnalysis(analysisData);
     els.orderResult.textContent = data.message;
   } catch (err) {
-    els.orderResult.textContent = err.message;
+    if (err.d1Missing) await placeLocalOrder(side);
+    else els.orderResult.textContent = err.message;
   } finally {
     setBusy(false);
   }
@@ -353,7 +649,24 @@ async function resetBot() {
     els.scanResult.textContent = 'Paper bot reset to £10 pot and £0 vault.';
     els.orderResult.textContent = 'Practice platform reset.';
   } catch (err) {
-    els.scanResult.textContent = err.message;
+    if (err.d1Missing) {
+      const store = readLocalStore();
+      store.state = {
+        ...store.state,
+        trading_pot_pence: 1000,
+        profit_vault_pence: 0,
+        active_position: null,
+        active_position_json: null,
+        trading_environment: 'practice'
+      };
+      writeLocalStore(store);
+      renderState(store.state);
+      renderAnalysis(localAnalysis(store));
+      els.scanResult.textContent = 'Practice platform reset in this browser.';
+      els.orderResult.textContent = 'Practice platform reset in this browser.';
+    } else {
+      els.scanResult.textContent = err.message;
+    }
   } finally {
     setBusy(false);
   }
@@ -394,7 +707,8 @@ async function saveWallet() {
     renderState(data.state);
     els.scanResult.textContent = 'Wallet saved as future profit destination.';
   } catch (err) {
-    els.scanResult.textContent = err.message;
+    if (err.d1Missing) saveLocalWallet(wallet);
+    else els.scanResult.textContent = err.message;
   } finally {
     setBusy(false);
   }
