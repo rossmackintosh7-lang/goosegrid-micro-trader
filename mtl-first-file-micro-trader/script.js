@@ -19,6 +19,7 @@ const els = {
   walletShort: document.getElementById('walletShort'),
   walletHint: document.getElementById('walletHint'),
   walletAddress: document.getElementById('walletAddress'),
+  manualWalletAddress: document.getElementById('manualWalletAddress'),
   marketCards: document.getElementById('marketCards'),
   marketUpdated: document.getElementById('marketUpdated'),
   scanStatus: document.getElementById('scanStatus'),
@@ -32,6 +33,7 @@ const formatGBP = (pence) => `£${(Number(pence || 0) / 100).toFixed(2)}`;
 const shortAddress = (addr) => addr ? `${addr.slice(0, 6)}…${addr.slice(-4)}` : 'Not connected';
 const modeLabel = (mode) => ({ cautious: 'Cautious', balanced: 'Balanced', high_risk: 'High risk' }[mode] || 'Balanced');
 const pairLabel = (symbol) => ({ bitcoin: 'BTC/GBP', ethereum: 'ETH/GBP', solana: 'SOL/GBP' }[symbol] || 'BTC/GBP');
+const isLikelyEvmAddress = (addr) => /^0x[a-fA-F0-9]{40}$/.test(String(addr || '').trim());
 
 async function api(path, options = {}) {
   const res = await fetch(path, {
@@ -45,7 +47,7 @@ async function api(path, options = {}) {
 }
 
 function setBusy(isBusy) {
-  [els.runScanBtn, els.runScanHero, els.refreshBtn, els.saveSettingsBtn, els.resetBtn].forEach(btn => {
+  [els.runScanBtn, els.runScanHero, els.refreshBtn, els.saveSettingsBtn, els.resetBtn, els.connectWalletBtn, els.saveWalletBtn].forEach(btn => {
     if (btn) btn.disabled = isBusy;
   });
 }
@@ -65,6 +67,7 @@ function renderState(state) {
 
   if (s.wallet_address) {
     connectedWallet = s.wallet_address;
+    if (els.manualWalletAddress) els.manualWalletAddress.value = s.wallet_address;
     els.walletAddress.textContent = s.wallet_address;
     els.walletShort.textContent = shortAddress(s.wallet_address);
     els.walletHint.textContent = 'Saved as future profit destination';
@@ -204,11 +207,12 @@ async function resetBot() {
 async function connectWallet() {
   try {
     if (!window.ethereum) {
-      els.walletAddress.textContent = 'No browser wallet found. Install MetaMask, Coinbase Wallet extension, or another EVM wallet.';
+      els.walletAddress.textContent = 'No browser wallet found. Paste your public EVM address above, then save it.';
       return;
     }
     const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
     connectedWallet = accounts?.[0] || '';
+    if (els.manualWalletAddress && connectedWallet) els.manualWalletAddress.value = connectedWallet;
     els.walletAddress.textContent = connectedWallet || 'No account returned';
     els.walletShort.textContent = shortAddress(connectedWallet);
   } catch (err) {
@@ -217,20 +221,37 @@ async function connectWallet() {
 }
 
 async function saveWallet() {
-  if (!connectedWallet) {
-    els.walletAddress.textContent = 'Connect a wallet first.';
+  const wallet = String(els.manualWalletAddress?.value || connectedWallet || '').trim();
+  if (!wallet) {
+    els.walletAddress.textContent = 'Connect a wallet or paste a public address first.';
+    return;
+  }
+  if (!isLikelyEvmAddress(wallet)) {
+    els.walletAddress.textContent = 'Enter a valid EVM public address that starts with 0x.';
     return;
   }
   try {
+    setBusy(true);
     const data = await api('/api/wallet', {
       method: 'POST',
-      body: JSON.stringify({ wallet_address: connectedWallet })
+      body: JSON.stringify({ wallet_address: wallet })
     });
     renderState(data.state);
     els.scanResult.textContent = 'Wallet saved as future profit destination.';
   } catch (err) {
     els.scanResult.textContent = err.message;
+  } finally {
+    setBusy(false);
   }
+}
+
+function previewManualWallet() {
+  const wallet = String(els.manualWalletAddress?.value || '').trim();
+  if (!wallet) return;
+  connectedWallet = wallet;
+  els.walletAddress.textContent = wallet;
+  els.walletShort.textContent = shortAddress(wallet);
+  els.walletHint.textContent = isLikelyEvmAddress(wallet) ? 'Unsaved public address' : 'Check address format before saving';
 }
 
 els.refreshBtn.addEventListener('click', loadAll);
@@ -241,5 +262,6 @@ els.runScanHero.addEventListener('click', runScan);
 els.resetBtn.addEventListener('click', resetBot);
 els.connectWalletBtn.addEventListener('click', connectWallet);
 els.saveWalletBtn.addEventListener('click', saveWallet);
+els.manualWalletAddress.addEventListener('input', previewManualWallet);
 
 loadAll();
