@@ -6,16 +6,29 @@ const els = {
   saveSettingsBtn: document.getElementById('saveSettingsBtn'),
   connectWalletBtn: document.getElementById('connectWalletBtn'),
   saveWalletBtn: document.getElementById('saveWalletBtn'),
+  practiceBuyBtn: document.getElementById('practiceBuyBtn'),
+  practiceSellBtn: document.getElementById('practiceSellBtn'),
   loadHistoryBtn: document.getElementById('loadHistoryBtn'),
   assetSelect: document.getElementById('assetSelect'),
+  tradeAssetSelect: document.getElementById('tradeAssetSelect'),
   modeSelect: document.getElementById('modeSelect'),
+  environmentSelect: document.getElementById('environmentSelect'),
+  orderAmount: document.getElementById('orderAmount'),
   thresholdSelect: document.getElementById('thresholdSelect'),
   tradingPot: document.getElementById('tradingPot'),
   profitVault: document.getElementById('profitVault'),
   heroPot: document.getElementById('heroPot'),
   heroVault: document.getElementById('heroVault'),
   heroMode: document.getElementById('heroMode'),
+  heroEnvironment: document.getElementById('heroEnvironment'),
   heroPosition: document.getElementById('heroPosition'),
+  liveTradingStatus: document.getElementById('liveTradingStatus'),
+  liveTradingHint: document.getElementById('liveTradingHint'),
+  environmentStatus: document.getElementById('environmentStatus'),
+  positionTitle: document.getElementById('positionTitle'),
+  positionEntry: document.getElementById('positionEntry'),
+  positionSize: document.getElementById('positionSize'),
+  positionEnvironment: document.getElementById('positionEnvironment'),
   walletShort: document.getElementById('walletShort'),
   walletHint: document.getElementById('walletHint'),
   walletAddress: document.getElementById('walletAddress'),
@@ -24,14 +37,17 @@ const els = {
   marketUpdated: document.getElementById('marketUpdated'),
   scanStatus: document.getElementById('scanStatus'),
   scanResult: document.getElementById('scanResult'),
+  orderResult: document.getElementById('orderResult'),
   tradeTableBody: document.getElementById('tradeTableBody')
 };
 
 let connectedWallet = '';
 
 const formatGBP = (pence) => `£${(Number(pence || 0) / 100).toFixed(2)}`;
+const formatAmount = (pence) => `£${(Number(pence || 0) / 100).toFixed(2)}`;
 const shortAddress = (addr) => addr ? `${addr.slice(0, 6)}…${addr.slice(-4)}` : 'Not connected';
 const modeLabel = (mode) => ({ cautious: 'Cautious', balanced: 'Balanced', high_risk: 'High risk' }[mode] || 'Balanced');
+const environmentLabel = (environment) => ({ practice: 'Practice', real: 'Real' }[environment] || 'Practice');
 const pairLabel = (symbol) => ({ bitcoin: 'BTC/GBP', ethereum: 'ETH/GBP', solana: 'SOL/GBP' }[symbol] || 'BTC/GBP');
 const isLikelyEvmAddress = (addr) => /^0x[a-fA-F0-9]{40}$/.test(String(addr || '').trim());
 const isLikelyBitcoinAddress = (addr) => /^(bc1)[ac-hj-np-z02-9]{11,87}$/i.test(String(addr || '').trim()) || /^[13][a-km-zA-HJ-NP-Z1-9]{25,34}$/.test(String(addr || '').trim());
@@ -50,9 +66,42 @@ async function api(path, options = {}) {
 }
 
 function setBusy(isBusy) {
-  [els.runScanBtn, els.runScanHero, els.refreshBtn, els.saveSettingsBtn, els.resetBtn, els.connectWalletBtn, els.saveWalletBtn].forEach(btn => {
+  [els.runScanBtn, els.runScanHero, els.refreshBtn, els.saveSettingsBtn, els.resetBtn, els.connectWalletBtn, els.saveWalletBtn, els.practiceBuyBtn, els.practiceSellBtn].forEach(btn => {
     if (btn) btn.disabled = isBusy;
   });
+}
+
+function renderEnvironment(environment) {
+  const value = environment === 'real' ? 'real' : 'practice';
+  const label = environmentLabel(value);
+  els.heroEnvironment.textContent = label;
+  els.environmentStatus.textContent = label;
+  els.positionEnvironment.textContent = label;
+  els.environmentSelect.value = value;
+
+  if (value === 'real') {
+    els.liveTradingStatus.textContent = 'Locked';
+    els.liveTradingHint.textContent = 'Real orders need exchange keys, limits, and explicit approval.';
+    els.orderResult.textContent = 'Real mode selected. Buy and sell are locked until a live exchange adapter is configured.';
+  } else {
+    els.liveTradingStatus.textContent = 'Practice';
+    els.liveTradingHint.textContent = 'Practice buys and sells are simulated.';
+  }
+}
+
+function renderPosition(position) {
+  if (!position) {
+    els.positionTitle.textContent = 'No open position';
+    els.positionEntry.textContent = '-';
+    els.positionSize.textContent = '-';
+    els.heroPosition.textContent = 'None';
+    return;
+  }
+
+  els.positionTitle.textContent = `${pairLabel(position.symbol)} open`;
+  els.positionEntry.textContent = `£${Number(position.entry_price || 0).toFixed(2)}`;
+  els.positionSize.textContent = formatAmount(position.position_size_pence || position.pot_at_entry_pence || 0);
+  els.heroPosition.textContent = `${pairLabel(position.symbol)} @ £${Number(position.entry_price || 0).toFixed(2)}`;
 }
 
 function renderState(state) {
@@ -62,11 +111,16 @@ function renderState(state) {
   els.heroPot.textContent = formatGBP(s.trading_pot_pence);
   els.heroVault.textContent = formatGBP(s.profit_vault_pence);
   els.heroMode.textContent = modeLabel(s.mode);
-  els.heroPosition.textContent = s.active_position ? `${pairLabel(s.active_position.symbol)} @ £${Number(s.active_position.entry_price || 0).toFixed(2)}` : 'None';
+  renderEnvironment(s.trading_environment);
+  renderPosition(s.active_position);
 
-  if (s.symbol) els.assetSelect.value = s.symbol;
+  if (s.symbol) {
+    els.assetSelect.value = s.symbol;
+    els.tradeAssetSelect.value = s.symbol;
+  }
   if (s.mode) els.modeSelect.value = s.mode;
   if (s.withdrawal_threshold_pence) els.thresholdSelect.value = String(s.withdrawal_threshold_pence);
+  if (s.trading_pot_pence) els.orderAmount.value = (Number(s.trading_pot_pence) / 100).toFixed(2);
 
   if (s.wallet_address) {
     connectedWallet = s.wallet_address;
@@ -155,6 +209,7 @@ async function saveSettings() {
       body: JSON.stringify({
         symbol: els.assetSelect.value,
         mode: els.modeSelect.value,
+        trading_environment: els.environmentSelect.value,
         withdrawal_threshold_pence: Number(els.thresholdSelect.value)
       })
     });
@@ -192,6 +247,31 @@ async function runScan() {
   }
 }
 
+async function placeOrder(side) {
+  try {
+    setBusy(true);
+    els.orderResult.textContent = `${side === 'BUY' ? 'Buying' : 'Selling'} in ${environmentLabel(els.environmentSelect.value).toLowerCase()} mode...`;
+    const amountPence = Math.round(Number(els.orderAmount.value || 0) * 100);
+    const data = await api('/api/order', {
+      method: 'POST',
+      body: JSON.stringify({
+        side,
+        symbol: els.tradeAssetSelect.value,
+        trading_environment: els.environmentSelect.value,
+        amount_pence: amountPence
+      })
+    });
+    renderState(data.state);
+    renderMarkets(data.markets, data.market_source);
+    renderTrades(data.trades);
+    els.orderResult.textContent = data.message;
+  } catch (err) {
+    els.orderResult.textContent = err.message;
+  } finally {
+    setBusy(false);
+  }
+}
+
 async function resetBot() {
   const yes = window.confirm('Reset the paper pot, profit vault and open paper position? Trade history stays for proof unless you clear D1 manually.');
   if (!yes) return;
@@ -200,6 +280,7 @@ async function resetBot() {
     const data = await api('/api/reset', { method: 'POST' });
     renderState(data.state);
     els.scanResult.textContent = 'Paper bot reset to £10 pot and £0 vault.';
+    els.orderResult.textContent = 'Practice platform reset.';
   } catch (err) {
     els.scanResult.textContent = err.message;
   } finally {
@@ -263,6 +344,9 @@ els.saveSettingsBtn.addEventListener('click', saveSettings);
 els.runScanBtn.addEventListener('click', runScan);
 els.runScanHero.addEventListener('click', runScan);
 els.resetBtn.addEventListener('click', resetBot);
+els.practiceBuyBtn.addEventListener('click', () => placeOrder('BUY'));
+els.practiceSellBtn.addEventListener('click', () => placeOrder('SELL'));
+els.environmentSelect.addEventListener('change', () => renderEnvironment(els.environmentSelect.value));
 els.connectWalletBtn.addEventListener('click', connectWallet);
 els.saveWalletBtn.addEventListener('click', saveWallet);
 els.manualWalletAddress.addEventListener('input', previewManualWallet);

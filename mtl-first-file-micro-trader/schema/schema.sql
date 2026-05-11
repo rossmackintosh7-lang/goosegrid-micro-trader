@@ -9,6 +9,7 @@ CREATE TABLE IF NOT EXISTS bot_state (
   active_position_json TEXT,
   symbol TEXT NOT NULL DEFAULT 'bitcoin',
   mode TEXT NOT NULL DEFAULT 'balanced',
+  trading_environment TEXT NOT NULL DEFAULT 'practice',
   wallet_address TEXT,
   withdrawal_threshold_pence INTEGER NOT NULL DEFAULT 2500,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
@@ -27,6 +28,7 @@ CREATE TABLE IF NOT EXISTS trades (
   pnl_pct REAL,
   reason TEXT,
   mode TEXT,
+  environment TEXT NOT NULL DEFAULT 'practice',
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 

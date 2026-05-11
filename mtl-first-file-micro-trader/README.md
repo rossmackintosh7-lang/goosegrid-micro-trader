@@ -2,20 +2,22 @@
 
 Private proof build for Ross.
 
-This is a paper-trading proof system, not a live trading bot.
+This is a practice-trading proof system. Real trading mode is present in the UI, but locked until a supported exchange adapter, API keys, limits, and explicit approval are configured.
 
 ## What it does
 
 - Starts with a £10 paper trading pot.
+- Lets you manually buy and sell in practice mode.
 - Opens simulated paper positions from simple market momentum rules.
 - Closes simulated positions at take-profit or stop-loss thresholds.
 - Skims simulated profit into a profit vault.
-- Saves an EVM wallet address as a future profit destination.
+- Saves a public crypto address as a future profit destination.
 - Logs trades in Cloudflare D1.
+- Lets the interface switch between Practice and Real environments.
 
 ## What it does not do
 
-- It does not place real exchange orders.
+- It does not place real exchange orders until a live exchange adapter is deliberately added and enabled.
 - It does not ask for seed phrases.
 - It does not sign wallet transactions.
 - It does not withdraw funds.

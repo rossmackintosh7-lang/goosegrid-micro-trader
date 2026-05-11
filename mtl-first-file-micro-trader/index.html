@@ -21,6 +21,7 @@
     </a>
     <nav class="nav-links" aria-label="Primary navigation">
       <a href="#dashboard">Dashboard</a>
+      <a href="#trading">Trading</a>
       <a href="#wallet">Wallet</a>
       <a href="#rules">Rules</a>
       <a href="#log">Trade Log</a>
@@ -32,18 +33,22 @@
   <main id="top">
     <section class="hero shell">
       <div class="hero-copy">
-        <p class="eyebrow">Private proof build · paper trading only</p>
-        <h1>£10 trading pot. Profit vault. Wallet destination. No live orders yet.</h1>
+        <p class="eyebrow">Private proof build · practice trading first</p>
+        <h1>£10 trading pot. Practice buys and sells. Real mode gated.</h1>
         <p class="hero-text">
-          This starter build proves your Option A idea: keep a £10 paper trading pot active, skim any simulated profit into a vault, and save your crypto wallet as the future destination once real withdrawals are safe and worthwhile.
+          This build lets you test manual buys and sells in practice mode, keep a £10 active pot, skim simulated profit into a vault, and switch the interface into real mode once an exchange adapter is configured.
         </p>
         <div class="hero-actions">
-          <button id="runScanHero" class="primary-btn" type="button">Run market scan</button>
-          <a class="secondary-btn" href="#setup">Start setup</a>
+          <a class="primary-btn" href="#trading">Open trading panel</a>
+          <button id="runScanHero" class="secondary-btn" type="button">Run market scan</button>
         </div>
-        <p class="fine-print">No seed phrases. No live trading. No exchange keys. Not financial advice.</p>
+        <p class="fine-print">Practice mode is simulated. Real mode is locked until configured. No seed phrases. Not financial advice.</p>
       </div>
       <aside class="hero-card glass-card" aria-label="Status summary">
+        <div class="status-row">
+          <span>Environment</span>
+          <strong id="heroEnvironment">Practice</strong>
+        </div>
         <div class="status-row">
           <span>Mode</span>
           <strong id="heroMode">Balanced</strong>
@@ -81,8 +86,68 @@
       </article>
       <article class="glass-card metric-card warning-card">
         <span class="metric-label">Live trading</span>
-        <strong>Locked</strong>
-        <small>This build cannot place real orders.</small>
+        <strong id="liveTradingStatus">Locked</strong>
+        <small id="liveTradingHint">Real orders need an exchange adapter and explicit approval.</small>
+      </article>
+    </section>
+
+    <section id="trading" class="shell two-col">
+      <article class="glass-card panel">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Trading platform</p>
+            <h2>Buy and sell</h2>
+          </div>
+          <span id="environmentStatus" class="pill">Practice</span>
+        </div>
+
+        <div class="control-grid trading-grid">
+          <label>
+            Platform
+            <select id="environmentSelect">
+              <option value="practice">Practice</option>
+              <option value="real">Real</option>
+            </select>
+          </label>
+          <label>
+            Order size
+            <input id="orderAmount" type="number" inputmode="decimal" min="1" max="10" step="0.5" value="10" />
+          </label>
+          <label>
+            Trade asset
+            <select id="tradeAssetSelect">
+              <option value="bitcoin">BTC/GBP</option>
+              <option value="ethereum">ETH/GBP</option>
+              <option value="solana">SOL/GBP</option>
+            </select>
+          </label>
+        </div>
+
+        <div class="button-row">
+          <button id="practiceBuyBtn" class="primary-btn" type="button">Buy</button>
+          <button id="practiceSellBtn" class="secondary-btn" type="button">Sell</button>
+        </div>
+
+        <div id="orderResult" class="scan-result">Practice mode is ready. Real mode will refuse orders until a live exchange is configured.</div>
+      </article>
+
+      <article class="glass-card panel">
+        <p class="eyebrow">Position</p>
+        <h2 id="positionTitle">No open position</h2>
+        <div class="position-grid">
+          <div>
+            <span>Entry</span>
+            <strong id="positionEntry">-</strong>
+          </div>
+          <div>
+            <span>Size</span>
+            <strong id="positionSize">-</strong>
+          </div>
+          <div>
+            <span>Environment</span>
+            <strong id="positionEnvironment">Practice</strong>
+          </div>
+        </div>
       </article>
     </section>
 

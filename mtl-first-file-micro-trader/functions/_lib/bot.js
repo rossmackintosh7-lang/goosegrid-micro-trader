@@ -7,6 +7,11 @@ export const PAIRS = {
   solana: 'SOL/GBP'
 };
 
+export const TRADING_ENVIRONMENTS = {
+  practice: 'Practice',
+  real: 'Real'
+};
+
 const MARKET_IDS = Object.keys(PAIRS);
 const COINGECKO_MARKETS_URL = `https://api.coingecko.com/api/v3/coins/markets?vs_currency=gbp&ids=${MARKET_IDS.join(',')}&order=market_cap_desc&per_page=3&page=1&sparkline=false&price_change_percentage=24h`;
 
@@ -64,6 +69,16 @@ export function getDb(env) {
   return env.DB;
 }
 
+async function ensureColumn(db, table, column, definition) {
+  try {
+    await db.prepare(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`).run();
+  } catch (error) {
+    if (!/duplicate column|already exists/i.test(error.message || '')) {
+      throw error;
+    }
+  }
+}
+
 export async function ensureSchema(db) {
   await db.prepare(`
     CREATE TABLE IF NOT EXISTS bot_state (
@@ -74,6 +89,7 @@ export async function ensureSchema(db) {
       active_position_json TEXT,
       symbol TEXT NOT NULL DEFAULT 'bitcoin',
       mode TEXT NOT NULL DEFAULT 'balanced',
+      trading_environment TEXT NOT NULL DEFAULT 'practice',
       wallet_address TEXT,
       withdrawal_threshold_pence INTEGER NOT NULL DEFAULT 2500,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
@@ -94,6 +110,7 @@ export async function ensureSchema(db) {
       pnl_pct REAL,
       reason TEXT,
       mode TEXT,
+      environment TEXT NOT NULL DEFAULT 'practice',
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     )
   `).run();
@@ -123,6 +140,8 @@ export async function ensureSchema(db) {
 
   await db.prepare(`CREATE INDEX IF NOT EXISTS idx_trades_created_at ON trades(created_at DESC)`).run();
   await db.prepare(`CREATE INDEX IF NOT EXISTS idx_scans_created_at ON scans(created_at DESC)`).run();
+  await ensureColumn(db, 'bot_state', 'trading_environment', `TEXT NOT NULL DEFAULT 'practice'`);
+  await ensureColumn(db, 'trades', 'environment', `TEXT NOT NULL DEFAULT 'practice'`);
 }
 
 export async function ensureState(db) {
@@ -144,6 +163,7 @@ export function normaliseState(row) {
   if (!row) return null;
   return {
     ...row,
+    trading_environment: TRADING_ENVIRONMENTS[row.trading_environment] ? row.trading_environment : 'practice',
     active_position: parsePosition(row.active_position_json)
   };
 }
@@ -308,8 +328,8 @@ export async function insertTrade(db, trade) {
   const id = crypto.randomUUID();
   await db.prepare(`
     INSERT INTO trades (
-      id, symbol, action, entry_price, exit_price, pot_before_pence, pot_after_pence, pnl_pence, pnl_pct, reason, mode, created_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+      id, symbol, action, entry_price, exit_price, pot_before_pence, pot_after_pence, pnl_pence, pnl_pct, reason, mode, environment, created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
   `).bind(
     id,
     trade.symbol,
@@ -321,7 +341,8 @@ export async function insertTrade(db, trade) {
     trade.pnl_pence ?? null,
     trade.pnl_pct ?? null,
     trade.reason ?? null,
-    trade.mode ?? null
+    trade.mode ?? null,
+    trade.environment ?? 'practice'
   ).run();
   return { id, ...trade };
 }
