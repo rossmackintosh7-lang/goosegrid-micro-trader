@@ -42,15 +42,15 @@ export async function onRequest(context) {
       return json({ ok: false, error: 'Order side must be BUY or SELL.' }, 400);
     }
 
+    if (requestedEnvironment === 'real') {
+      throw realTradingLocked();
+    }
+
     await db.prepare(`
       UPDATE bot_state
       SET trading_environment = ?, updated_at = datetime('now')
       WHERE id = 'main'
     `).bind(requestedEnvironment).run();
-
-    if (requestedEnvironment === 'real') {
-      throw realTradingLocked();
-    }
 
     const active = state.active_position;
     const symbol = PAIRS[body.symbol] ? body.symbol : active?.symbol || state.symbol || 'bitcoin';

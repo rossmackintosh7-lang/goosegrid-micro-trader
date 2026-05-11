@@ -42,6 +42,7 @@ const els = {
 };
 
 let connectedWallet = '';
+let appBusy = false;
 
 const formatGBP = (pence) => `£${(Number(pence || 0) / 100).toFixed(2)}`;
 const formatAmount = (pence) => `£${(Number(pence || 0) / 100).toFixed(2)}`;
@@ -66,8 +67,20 @@ async function api(path, options = {}) {
 }
 
 function setBusy(isBusy) {
-  [els.runScanBtn, els.runScanHero, els.refreshBtn, els.saveSettingsBtn, els.resetBtn, els.connectWalletBtn, els.saveWalletBtn, els.practiceBuyBtn, els.practiceSellBtn].forEach(btn => {
+  appBusy = isBusy;
+  [els.runScanBtn, els.runScanHero, els.refreshBtn, els.saveSettingsBtn, els.resetBtn, els.connectWalletBtn, els.saveWalletBtn].forEach(btn => {
     if (btn) btn.disabled = isBusy;
+  });
+  const orderLocked = els.environmentSelect?.value === 'real';
+  [els.practiceBuyBtn, els.practiceSellBtn].forEach(btn => {
+    if (btn) btn.disabled = appBusy || orderLocked;
+  });
+}
+
+function syncOrderButtons() {
+  const orderLocked = els.environmentSelect?.value === 'real';
+  [els.practiceBuyBtn, els.practiceSellBtn].forEach(btn => {
+    if (btn) btn.disabled = appBusy || orderLocked;
   });
 }
 
@@ -76,17 +89,17 @@ function renderEnvironment(environment) {
   const label = environmentLabel(value);
   els.heroEnvironment.textContent = label;
   els.environmentStatus.textContent = label;
-  els.positionEnvironment.textContent = label;
   els.environmentSelect.value = value;
 
   if (value === 'real') {
     els.liveTradingStatus.textContent = 'Locked';
     els.liveTradingHint.textContent = 'Real orders need exchange keys, limits, and explicit approval.';
-    els.orderResult.textContent = 'Real mode selected. Buy and sell are locked until a live exchange adapter is configured.';
+    els.orderResult.textContent = 'Real mode selected. Buy and sell are locked until a live exchange adapter is configured. Switch back to Practice to manage practice positions.';
   } else {
     els.liveTradingStatus.textContent = 'Practice';
     els.liveTradingHint.textContent = 'Practice buys and sells are simulated.';
   }
+  syncOrderButtons();
 }
 
 function renderPosition(position) {
@@ -94,6 +107,7 @@ function renderPosition(position) {
     els.positionTitle.textContent = 'No open position';
     els.positionEntry.textContent = '-';
     els.positionSize.textContent = '-';
+    els.positionEnvironment.textContent = '-';
     els.heroPosition.textContent = 'None';
     return;
   }
@@ -101,6 +115,7 @@ function renderPosition(position) {
   els.positionTitle.textContent = `${pairLabel(position.symbol)} open`;
   els.positionEntry.textContent = `£${Number(position.entry_price || 0).toFixed(2)}`;
   els.positionSize.textContent = formatAmount(position.position_size_pence || position.pot_at_entry_pence || 0);
+  els.positionEnvironment.textContent = environmentLabel(position.environment || 'practice');
   els.heroPosition.textContent = `${pairLabel(position.symbol)} @ £${Number(position.entry_price || 0).toFixed(2)}`;
 }
 
