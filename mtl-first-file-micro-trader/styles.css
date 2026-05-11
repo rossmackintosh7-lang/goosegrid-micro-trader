@@ -232,6 +232,25 @@ input[type="text"]::placeholder { color: rgba(159,178,203,0.62); }
   color: var(--cyan);
   overflow-wrap: anywhere;
 }
+.signal-box {
+  padding: 18px;
+  border-radius: 18px;
+  border: 1px solid rgba(77, 227, 255, 0.24);
+  background: rgba(77, 227, 255, 0.08);
+}
+.signal-box span {
+  display: block;
+  color: var(--cyan);
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin-bottom: 10px;
+}
+.signal-box strong {
+  display: block;
+  line-height: 1.55;
+  color: var(--text);
+}
 
 .wallet-zone { align-items: stretch; }
 .wallet-input { margin-top: 18px; }

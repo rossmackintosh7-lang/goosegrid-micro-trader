@@ -22,6 +22,7 @@
     <nav class="nav-links" aria-label="Primary navigation">
       <a href="#dashboard">Dashboard</a>
       <a href="#trading">Trading</a>
+      <a href="#monitor">Monitor</a>
       <a href="#wallet">Wallet</a>
       <a href="#rules">Rules</a>
       <a href="#log">Trade Log</a>
@@ -148,6 +149,48 @@
             <strong id="positionEnvironment">Practice</strong>
           </div>
         </div>
+      </article>
+    </section>
+
+    <section id="monitor" class="shell two-col">
+      <article class="glass-card panel">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Live monitor</p>
+            <h2>Sell guidance</h2>
+          </div>
+          <span id="monitorStatus" class="pill">Watching</span>
+        </div>
+        <div class="signal-box">
+          <span id="predictionSignal">No open trade</span>
+          <strong id="predictionText">Open a practice position to get live sell guidance.</strong>
+        </div>
+        <div class="position-grid">
+          <div>
+            <span>Live P/L</span>
+            <strong id="livePnl">-</strong>
+          </div>
+          <div>
+            <span>Sell target</span>
+            <strong id="sellTarget">-</strong>
+          </div>
+          <div>
+            <span>Stop line</span>
+            <strong id="stopLine">-</strong>
+          </div>
+        </div>
+        <div id="monitorMeta" class="scan-result">Refreshes automatically about once a minute using cached market data.</div>
+      </article>
+
+      <article class="glass-card panel">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Market predictions</p>
+            <h2>Momentum view</h2>
+          </div>
+          <span id="predictionUpdated" class="pill">Loading</span>
+        </div>
+        <div id="predictionCards" class="market-cards"></div>
       </article>
     </section>
 

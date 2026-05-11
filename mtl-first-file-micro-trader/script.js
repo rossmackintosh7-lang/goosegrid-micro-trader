@@ -29,6 +29,15 @@ const els = {
   positionEntry: document.getElementById('positionEntry'),
   positionSize: document.getElementById('positionSize'),
   positionEnvironment: document.getElementById('positionEnvironment'),
+  monitorStatus: document.getElementById('monitorStatus'),
+  predictionSignal: document.getElementById('predictionSignal'),
+  predictionText: document.getElementById('predictionText'),
+  livePnl: document.getElementById('livePnl'),
+  sellTarget: document.getElementById('sellTarget'),
+  stopLine: document.getElementById('stopLine'),
+  monitorMeta: document.getElementById('monitorMeta'),
+  predictionUpdated: document.getElementById('predictionUpdated'),
+  predictionCards: document.getElementById('predictionCards'),
   walletShort: document.getElementById('walletShort'),
   walletHint: document.getElementById('walletHint'),
   walletAddress: document.getElementById('walletAddress'),
@@ -43,9 +52,11 @@ const els = {
 
 let connectedWallet = '';
 let appBusy = false;
+let lastAutoRefreshAt = 0;
 
 const formatGBP = (pence) => `£${(Number(pence || 0) / 100).toFixed(2)}`;
 const formatAmount = (pence) => `£${(Number(pence || 0) / 100).toFixed(2)}`;
+const formatPrice = (price) => Number(price || 0) ? `£${Number(price).toLocaleString(undefined, { maximumFractionDigits: 2 })}` : '-';
 const shortAddress = (addr) => addr ? `${addr.slice(0, 6)}…${addr.slice(-4)}` : 'Not connected';
 const modeLabel = (mode) => ({ cautious: 'Cautious', balanced: 'Balanced', high_risk: 'High risk' }[mode] || 'Balanced');
 const environmentLabel = (environment) => ({ practice: 'Practice', real: 'Real' }[environment] || 'Practice');
@@ -197,6 +208,45 @@ function renderTrades(trades) {
   }).join('');
 }
 
+function renderAnalysis(data) {
+  const position = data?.position_analysis || {};
+  const markets = data?.market_analysis || [];
+  els.monitorStatus.textContent = position.signal_label || 'Watching';
+  els.predictionSignal.textContent = position.signal_label || 'No open trade';
+  els.predictionText.textContent = position.message || 'Open a practice position to get live sell guidance.';
+
+  if (position.has_position) {
+    const pnl = Number(position.pnl_pence || 0);
+    els.livePnl.textContent = `${formatGBP(pnl)} (${Number(position.pnl_pct || 0).toFixed(2)}%)`;
+    els.livePnl.className = pnl >= 0 ? 'change-up' : 'change-down';
+    els.sellTarget.textContent = formatPrice(position.target_price);
+    els.stopLine.textContent = formatPrice(position.stop_price);
+  } else {
+    els.livePnl.textContent = '-';
+    els.livePnl.className = '';
+    els.sellTarget.textContent = '-';
+    els.stopLine.textContent = '-';
+  }
+
+  const source = data?.market_source || 'cache';
+  const updated = data?.updated_at ? new Date(data.updated_at).toLocaleTimeString() : 'now';
+  els.monitorMeta.textContent = `Updated ${updated}. Source: ${source}. Signals are estimates, not financial advice.`;
+  els.predictionUpdated.textContent = source === 'stale-cache' ? 'Stale cache' : 'Live-ish';
+
+  els.predictionCards.innerHTML = markets.map((market) => `
+    <div class="market-card">
+      <div>
+        <strong>${market.pair_label}</strong><br />
+        <small>${market.label} · ${market.confidence} confidence</small>
+      </div>
+      <div>
+        <strong>${market.direction}</strong><br />
+        <small class="${market.direction === 'UP' ? 'change-up' : market.direction === 'DOWN' ? 'change-down' : ''}">${Number(market.change_24h || 0).toFixed(2)}%</small>
+      </div>
+    </div>
+  `).join('') || '<p>No predictions yet.</p>';
+}
+
 async function loadAll() {
   try {
     setBusy(true);
@@ -208,6 +258,8 @@ async function loadAll() {
     renderState(stateData.state);
     renderMarkets(marketData.markets, marketData.source);
     renderTrades(historyData.trades);
+    const analysisData = await api('/api/analysis');
+    renderAnalysis(analysisData);
   } catch (err) {
     els.scanResult.textContent = err.message;
     console.error(err);
@@ -252,6 +304,8 @@ async function runScan() {
     renderState(data.state);
     renderMarkets(data.markets, data.market_source);
     renderTrades(data.trades);
+    const analysisData = await api('/api/analysis');
+    renderAnalysis(analysisData);
     els.scanResult.textContent = data.message;
     els.scanStatus.textContent = data.action || 'Done';
   } catch (err) {
@@ -279,6 +333,8 @@ async function placeOrder(side) {
     renderState(data.state);
     renderMarkets(data.markets, data.market_source);
     renderTrades(data.trades);
+    const analysisData = await api('/api/analysis');
+    renderAnalysis(analysisData);
     els.orderResult.textContent = data.message;
   } catch (err) {
     els.orderResult.textContent = err.message;
@@ -367,3 +423,10 @@ els.saveWalletBtn.addEventListener('click', saveWallet);
 els.manualWalletAddress.addEventListener('input', previewManualWallet);
 
 loadAll();
+
+setInterval(() => {
+  const now = Date.now();
+  if (appBusy || now - lastAutoRefreshAt < 55000) return;
+  lastAutoRefreshAt = now;
+  loadAll();
+}, 60000);

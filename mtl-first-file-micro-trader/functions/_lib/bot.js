@@ -324,6 +324,132 @@ export function chooseSignal({ market, mode }) {
   return { shouldBuy: false, reason: `No buy: 24h move ${change.toFixed(2)}% is below the ${rules.label.toLowerCase()} trigger.` };
 }
 
+export function analyseOpenPosition({ state, markets }) {
+  const active = state?.active_position;
+  if (!active) {
+    return {
+      has_position: false,
+      signal: 'NO_POSITION',
+      signal_label: 'No open trade',
+      message: 'Open a practice position to get live sell guidance.',
+      confidence: 'n/a'
+    };
+  }
+
+  const symbol = active.symbol || state.symbol || 'bitcoin';
+  const market = findMarket(markets, symbol);
+  if (!market || !market.gbp) {
+    return {
+      has_position: true,
+      signal: 'NO_MARKET',
+      signal_label: 'No market data',
+      message: `No live GBP market data is available for ${PAIRS[symbol] || symbol}.`,
+      confidence: 'low'
+    };
+  }
+
+  const rules = MODES[state.mode] || MODES.balanced;
+  const entry = Number(active.entry_price || 0);
+  const current = Number(market.gbp || 0);
+  const positionSizePence = Number(active.position_size_pence || active.pot_at_entry_pence || state.trading_pot_pence || STARTING_POT_PENCE);
+  const pnlPct = entry > 0 ? ((current - entry) / entry) * 100 : 0;
+  const pnlPence = Math.round(positionSizePence * (pnlPct / 100));
+  const targetPrice = entry * (1 + rules.takeProfitPct / 100);
+  const stopPrice = entry * (1 + rules.stopLossPct / 100);
+  const change24h = Number(market.gbp_24h_change || 0);
+  const distanceToTargetPct = targetPrice > 0 ? ((targetPrice - current) / targetPrice) * 100 : 0;
+  const distanceToStopPct = stopPrice > 0 ? ((current - stopPrice) / stopPrice) * 100 : 0;
+
+  let signal = 'HOLD';
+  let signalLabel = 'Hold / watch';
+  let message = `Watching ${PAIRS[symbol]}. Target is £${targetPrice.toFixed(2)} and stop line is £${stopPrice.toFixed(2)}.`;
+  let confidence = 'medium';
+
+  if (pnlPct >= rules.takeProfitPct) {
+    signal = 'SELL_SIGNAL';
+    signalLabel = 'Sell signal';
+    message = `Target reached at ${pnlPct.toFixed(2)}% P/L. Consider closing the practice trade or tightening your stop.`;
+    confidence = 'high';
+  } else if (pnlPct <= rules.stopLossPct) {
+    signal = 'RISK_EXIT';
+    signalLabel = 'Risk exit';
+    message = `Stop line reached at ${pnlPct.toFixed(2)}% P/L. Consider closing the practice trade to limit the loss.`;
+    confidence = 'high';
+  } else if (pnlPct > 0 && pnlPct >= rules.takeProfitPct * 0.75) {
+    signal = change24h < 0 ? 'PROTECT_PROFIT' : 'SELL_WINDOW_NEAR';
+    signalLabel = change24h < 0 ? 'Protect profit' : 'Sell window near';
+    message = `Trade is ${pnlPct.toFixed(2)}% up and close to the ${rules.label.toLowerCase()} target. Watch for £${targetPrice.toFixed(2)} or a momentum fade.`;
+  } else if (pnlPct > 0 && change24h < -0.5) {
+    signal = 'PROTECT_PROFIT';
+    signalLabel = 'Protect profit';
+    message = `Trade is green, but 24h momentum is fading at ${change24h.toFixed(2)}%. Consider a tighter sell trigger.`;
+  } else if (change24h > rules.buyMaxChange) {
+    signal = 'OVERHEATED';
+    signalLabel = 'Overheated';
+    message = `24h move is ${change24h.toFixed(2)}%, above the ${rules.label.toLowerCase()} comfort band. Avoid chasing; watch for reversal.`;
+  } else if (change24h < rules.buyMinChange) {
+    signal = 'WEAK_MOMENTUM';
+    signalLabel = 'Weak momentum';
+    message = `24h move is ${change24h.toFixed(2)}%, below the ${rules.label.toLowerCase()} momentum trigger. Hold only if your stop line still fits.`;
+  }
+
+  return {
+    has_position: true,
+    signal,
+    signal_label: signalLabel,
+    message,
+    confidence,
+    symbol,
+    pair_label: PAIRS[symbol],
+    current_price: current,
+    entry_price: entry,
+    target_price: targetPrice,
+    stop_price: stopPrice,
+    distance_to_target_pct: distanceToTargetPct,
+    distance_to_stop_pct: distanceToStopPct,
+    pnl_pct: pnlPct,
+    pnl_pence: pnlPence,
+    change_24h: change24h,
+    position_size_pence: positionSizePence,
+    updated_at: new Date().toISOString(),
+    note: 'Signal only. Not financial advice.'
+  };
+}
+
+export function analyseMarkets(markets) {
+  return normaliseMarkets(markets).map((market) => {
+    const change = Number(market.gbp_24h_change || 0);
+    let direction = 'SIDEWAYS';
+    let label = 'Range / wait';
+    let confidence = 'medium';
+
+    if (change >= 2) {
+      direction = 'UP';
+      label = 'Strong momentum';
+      confidence = change > 6 ? 'low' : 'medium';
+    } else if (change >= 0.5) {
+      direction = 'UP';
+      label = 'Positive momentum';
+    } else if (change <= -2) {
+      direction = 'DOWN';
+      label = 'Sell pressure';
+    } else if (change <= -0.5) {
+      direction = 'DOWN';
+      label = 'Softening';
+    }
+
+    return {
+      symbol: market.id,
+      pair_label: PAIRS[market.id],
+      price: market.gbp,
+      change_24h: change,
+      direction,
+      label,
+      confidence
+    };
+  });
+}
+
 export async function insertTrade(db, trade) {
   const id = crypto.randomUUID();
   await db.prepare(`
