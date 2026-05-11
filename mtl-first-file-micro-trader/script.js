@@ -34,6 +34,9 @@ const shortAddress = (addr) => addr ? `${addr.slice(0, 6)}…${addr.slice(-4)}` 
 const modeLabel = (mode) => ({ cautious: 'Cautious', balanced: 'Balanced', high_risk: 'High risk' }[mode] || 'Balanced');
 const pairLabel = (symbol) => ({ bitcoin: 'BTC/GBP', ethereum: 'ETH/GBP', solana: 'SOL/GBP' }[symbol] || 'BTC/GBP');
 const isLikelyEvmAddress = (addr) => /^0x[a-fA-F0-9]{40}$/.test(String(addr || '').trim());
+const isLikelyBitcoinAddress = (addr) => /^(bc1)[ac-hj-np-z02-9]{11,87}$/i.test(String(addr || '').trim()) || /^[13][a-km-zA-HJ-NP-Z1-9]{25,34}$/.test(String(addr || '').trim());
+const isLikelySolanaAddress = (addr) => /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(String(addr || '').trim());
+const isLikelyPublicCryptoAddress = (addr) => isLikelyEvmAddress(addr) || isLikelyBitcoinAddress(addr) || isLikelySolanaAddress(addr);
 
 async function api(path, options = {}) {
   const res = await fetch(path, {
@@ -207,7 +210,7 @@ async function resetBot() {
 async function connectWallet() {
   try {
     if (!window.ethereum) {
-      els.walletAddress.textContent = 'No browser wallet found. Paste your public EVM address above, then save it.';
+      els.walletAddress.textContent = 'No browser wallet found. Paste your public crypto address above, then save it.';
       return;
     }
     const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
@@ -226,8 +229,8 @@ async function saveWallet() {
     els.walletAddress.textContent = 'Connect a wallet or paste a public address first.';
     return;
   }
-  if (!isLikelyEvmAddress(wallet)) {
-    els.walletAddress.textContent = 'Enter a valid EVM public address that starts with 0x.';
+  if (!isLikelyPublicCryptoAddress(wallet)) {
+    els.walletAddress.textContent = 'Enter a supported public crypto address, such as 0x..., bc1..., 1..., 3..., or a Solana address.';
     return;
   }
   try {
@@ -251,7 +254,7 @@ function previewManualWallet() {
   connectedWallet = wallet;
   els.walletAddress.textContent = wallet;
   els.walletShort.textContent = shortAddress(wallet);
-  els.walletHint.textContent = isLikelyEvmAddress(wallet) ? 'Unsaved public address' : 'Check address format before saving';
+  els.walletHint.textContent = isLikelyPublicCryptoAddress(wallet) ? 'Unsaved public address' : 'Check address format before saving';
 }
 
 els.refreshBtn.addEventListener('click', loadAll);
