@@ -22,6 +22,8 @@ function json(data, status) {
 export async function onRequest(context) {
   const { request, env, next } = context;
   const path = new URL(request.url).pathname;
+  if (!path.startsWith('/api/')) return next();
+
   const adminAuthorised = timingSafeEqual(request.headers.get('x-bot-token'), env.BOT_ADMIN_TOKEN);
   const schedulerAuthorised = path === '/api/scan'
     && request.method === 'POST'
