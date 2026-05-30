@@ -1,0 +1,14 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "goosegrid-micro-trader",
+  "compatibility_date": "2026-05-30",
+  "observability": {
+    "enabled": true
+  },
+  "assets": {
+    "directory": "mtl-first-file-micro-trader"
+  },
+  "compatibility_flags": [
+    "nodejs_compat"
+  ]
+}
