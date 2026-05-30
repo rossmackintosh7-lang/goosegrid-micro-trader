@@ -6,7 +6,10 @@ export default {
     }
     ctx.waitUntil(fetch(env.SCAN_URL, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Scheduler-Token': env.SCHEDULER_TOKEN || ''
+      },
       body: JSON.stringify({})
     }));
   }

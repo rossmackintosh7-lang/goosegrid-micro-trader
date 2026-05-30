@@ -2,6 +2,7 @@ import {
   STARTING_POT_PENCE,
   PAIRS,
   TRADING_ENVIRONMENTS,
+  calculateSimulatedPnl,
   errorJson,
   findMarket,
   getDb,
@@ -10,7 +11,8 @@ import {
   json,
   loadState,
   loadTrades,
-  methodNotAllowed
+  methodNotAllowed,
+  requireFreshSnapshot
 } from '../_lib/bot.js';
 
 function toPence(value, fallback) {
@@ -54,7 +56,7 @@ export async function onRequest(context) {
 
     const active = state.active_position;
     const symbol = PAIRS[body.symbol] ? body.symbol : active?.symbol || state.symbol || 'bitcoin';
-    const snapshot = await getMarketSnapshot(db, { maxAgeSeconds: 180, allowStale: true });
+    const snapshot = requireFreshSnapshot(await getMarketSnapshot(db, { maxAgeSeconds: 60, allowStale: false }));
     const market = findMarket(snapshot.markets, symbol);
     if (!market || !market.gbp) {
       return json({ ok: false, error: `No GBP market data returned for ${symbol}.` }, 500);
@@ -121,7 +123,7 @@ export async function onRequest(context) {
       const entryPrice = Number(active.entry_price);
       const positionSizePence = Number(active.position_size_pence || active.pot_at_entry_pence || potBefore);
       const pnlPct = ((exitPrice - entryPrice) / entryPrice) * 100;
-      const pnlPence = Math.round(positionSizePence * (pnlPct / 100));
+      const { feePence, pnlPence } = calculateSimulatedPnl(positionSizePence, pnlPct);
       const potAfterRaw = Math.max(0, potBefore + pnlPence);
       const skimmed = Math.max(0, potAfterRaw - STARTING_POT_PENCE);
       const finalPot = skimmed > 0 ? STARTING_POT_PENCE : potAfterRaw;
@@ -143,8 +145,8 @@ export async function onRequest(context) {
         pnl_pence: pnlPence,
         pnl_pct: pnlPct,
         reason: skimmed > 0
-          ? `Manual practice sell closed at ${pnlPct.toFixed(2)}%. Skimmed ${(skimmed / 100).toFixed(2)} into vault.`
-          : `Manual practice sell closed at ${pnlPct.toFixed(2)}%.`,
+          ? `Manual practice sell closed at ${pnlPct.toFixed(2)}%. Simulated fees ${(feePence / 100).toFixed(2)}. Skimmed ${(skimmed / 100).toFixed(2)} into vault.`
+          : `Manual practice sell closed at ${pnlPct.toFixed(2)}%. Simulated fees ${(feePence / 100).toFixed(2)}.`,
         mode: state.mode || 'manual',
         environment: 'practice'
       });

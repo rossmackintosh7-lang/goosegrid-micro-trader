@@ -13,7 +13,13 @@ export const TRADING_ENVIRONMENTS = {
 };
 
 const MARKET_IDS = Object.keys(PAIRS);
-const COINGECKO_MARKETS_URL = `https://api.coingecko.com/api/v3/coins/markets?vs_currency=gbp&ids=${MARKET_IDS.join(',')}&order=market_cap_desc&per_page=3&page=1&sparkline=false&price_change_percentage=24h`;
+const COINBASE_PRODUCTS = {
+  bitcoin: 'BTC-GBP',
+  ethereum: 'ETH-GBP',
+  solana: 'SOL-GBP'
+};
+export const MAX_DECISION_PRICE_AGE_SECONDS = 120;
+export const SIMULATED_FEE_BPS = 60;
 
 export const MODES = {
   cautious: {
@@ -138,6 +144,13 @@ export async function ensureSchema(db) {
     )
   `).run();
 
+  await db.prepare(`
+    CREATE TABLE IF NOT EXISTS scan_runs (
+      id TEXT PRIMARY KEY,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+  `).run();
+
   await db.prepare(`CREATE INDEX IF NOT EXISTS idx_trades_created_at ON trades(created_at DESC)`).run();
   await db.prepare(`CREATE INDEX IF NOT EXISTS idx_scans_created_at ON scans(created_at DESC)`).run();
   await ensureColumn(db, 'bot_state', 'trading_environment', `TEXT NOT NULL DEFAULT 'practice'`);
@@ -225,19 +238,37 @@ export function findMarket(markets, symbol) {
   return normalised.find((market) => market.id === symbol) || null;
 }
 
-export async function fetchMarketsRaw() {
-  const response = await fetch(COINGECKO_MARKETS_URL, {
+async function fetchCoinbaseJson(path) {
+  const response = await fetch(`https://api.exchange.coinbase.com${path}`, {
     headers: {
       'Accept': 'application/json',
-      'User-Agent': 'GooseGrid-Micro-Trader/1.1 (+private paper-trading proof build)'
+      'User-Agent': 'GooseGrid-Micro-Trader/2.0 (+private paper-trading proof build)'
     }
   });
+  if (!response.ok) throw new Error(`Coinbase market data failed with status ${response.status}`);
+  return response.json();
+}
 
-  if (!response.ok) {
-    throw new Error(`CoinGecko market data failed with status ${response.status}`);
-  }
-
-  return normaliseMarkets(await response.json());
+export async function fetchMarketsRaw() {
+  return Promise.all(MARKET_IDS.map(async (id) => {
+    const product = COINBASE_PRODUCTS[id];
+    const [ticker, stats] = await Promise.all([
+      fetchCoinbaseJson(`/products/${product}/ticker`),
+      fetchCoinbaseJson(`/products/${product}/stats`)
+    ]);
+    const price = asNumber(ticker.price);
+    const open = asNumber(stats.open);
+    return {
+      id,
+      pair_label: PAIRS[id],
+      symbol: product.split('-')[0],
+      name: id,
+      gbp: price,
+      gbp_24h_change: open ? ((price - open) / open) * 100 : 0,
+      gbp_24h_vol: asNumber(stats.volume) * price,
+      market_cap: 0
+    };
+  }));
 }
 
 export async function readCachedMarkets(db) {
@@ -288,14 +319,44 @@ export async function getMarketSnapshot(db, options = {}) {
 
   try {
     const markets = await fetchMarketsRaw();
-    await saveMarketCache(db, markets, 'coingecko');
-    return { ok: true, markets, source: 'coingecko', cached: false, stale: false, updated_at: new Date().toISOString(), age_seconds: 0 };
+    await saveMarketCache(db, markets, 'coinbase');
+    return { ok: true, markets, source: 'coinbase', cached: false, stale: false, updated_at: new Date().toISOString(), age_seconds: 0 };
   } catch (error) {
     if (allowStale && cached) {
       return { ok: true, markets: cached.markets, source: 'stale-cache', cached: true, stale: true, updated_at: cached.updated_at, age_seconds: cached.age_seconds, warning: error.message };
     }
     throw error;
   }
+}
+
+export function requireFreshSnapshot(snapshot, maxAgeSeconds = MAX_DECISION_PRICE_AGE_SECONDS) {
+  if (!snapshot || snapshot.stale || Number(snapshot.age_seconds || 0) > maxAgeSeconds) {
+    const error = new Error(`Trading decision blocked: market data is stale or unavailable. Maximum allowed age is ${maxAgeSeconds} seconds.`);
+    error.status = 503;
+    throw error;
+  }
+  return snapshot;
+}
+
+export async function acquireScanSlot(db) {
+  await ensureSchema(db);
+  const bucket = Math.floor(Date.now() / 60000);
+  await db.prepare(`DELETE FROM scan_runs WHERE created_at < datetime('now', '-1 day')`).run();
+  const result = await db.prepare(`
+    INSERT OR IGNORE INTO scan_runs (id, created_at)
+    VALUES (?, datetime('now'))
+  `).bind(`minute:${bucket}`).run();
+  if (!result.meta?.changes) {
+    const error = new Error('A scan has already run during this minute. Duplicate request blocked.');
+    error.status = 409;
+    throw error;
+  }
+}
+
+export function calculateSimulatedPnl(positionSizePence, pnlPct) {
+  const grossPnlPence = Math.round(Number(positionSizePence || 0) * (Number(pnlPct || 0) / 100));
+  const feePence = Math.max(1, Math.round(Number(positionSizePence || 0) * ((SIMULATED_FEE_BPS * 2) / 10000)));
+  return { grossPnlPence, feePence, pnlPence: grossPnlPence - feePence };
 }
 
 export async function fetchMarkets() {

@@ -52,6 +52,11 @@ CREATE TABLE IF NOT EXISTS market_cache (
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+CREATE TABLE IF NOT EXISTS scan_runs (
+  id TEXT PRIMARY KEY,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 CREATE INDEX IF NOT EXISTS idx_trades_created_at ON trades(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_scans_created_at ON scans(created_at DESC);
 

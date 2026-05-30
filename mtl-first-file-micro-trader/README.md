@@ -50,8 +50,15 @@ Redeploy after adding the binding.
 Preview deployments without the `DB` binding fall back to browser storage so the app can still remember the wallet, settings, open practice position, and local trade log in that browser. Production should still use D1.
 
 
-## v1.1 rate-limit fix
-This version caches CoinGecko market data in D1 for 3 minutes. The app uses the cache for scans so pressing Refresh and Run market scan no longer causes back-to-back CoinGecko calls. If CoinGecko returns 429, the app falls back to the most recent cached market snapshot when available.
+## v2 guarded paper trader
+
+- Private API token required for dashboard access.
+- Separate scheduler token for unattended paper scans.
+- Coinbase GBP spot pricing for BTC, ETH and SOL.
+- Trading decisions reject stale market data.
+- Duplicate scans in the same minute are blocked.
+- Simulated exits include round-trip fees.
+- Live exchange execution remains deliberately locked.
 
 If you already created the D1 database, run this SQL once:
 
@@ -62,5 +69,10 @@ CREATE TABLE IF NOT EXISTS market_cache (
   source TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS scan_runs (
+  id TEXT PRIMARY KEY,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 ```

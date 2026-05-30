@@ -2,6 +2,8 @@ import {
   STARTING_POT_PENCE,
   MODES,
   PAIRS,
+  acquireScanSlot,
+  calculateSimulatedPnl,
   chooseSignal,
   errorJson,
   findMarket,
@@ -11,17 +13,17 @@ import {
   json,
   loadState,
   loadTrades,
-  methodNotAllowed
+  methodNotAllowed,
+  requireFreshSnapshot
 } from '../_lib/bot.js';
 
 async function readScanBody(request) {
-  if (request.method === 'GET') return {};
   return await request.json().catch(() => ({}));
 }
 
 export async function onRequest(context) {
   const { request, env } = context;
-  if (!['GET', 'POST'].includes(request.method)) return methodNotAllowed('GET or POST');
+  if (request.method !== 'POST') return methodNotAllowed('POST');
 
   try {
     const body = await readScanBody(request);
@@ -31,6 +33,7 @@ export async function onRequest(context) {
 
     const db = getDb(env);
     let state = await loadState(db);
+    await acquireScanSlot(db);
 
     const symbol = requestedSymbol || state.symbol || 'bitcoin';
     const mode = requestedMode || state.mode || 'balanced';
@@ -43,16 +46,17 @@ export async function onRequest(context) {
     `).bind(symbol, mode, threshold).run();
 
     state = await loadState(db);
-    const snapshot = await getMarketSnapshot(db, { maxAgeSeconds: 180, allowStale: true });
+    const snapshot = requireFreshSnapshot(await getMarketSnapshot(db, { maxAgeSeconds: 60, allowStale: false }));
     const markets = snapshot.markets;
-    const market = findMarket(markets, symbol);
+    const active = state.active_position;
+    const decisionSymbol = active?.symbol || symbol;
+    const market = findMarket(markets, decisionSymbol);
     if (!market || !market.gbp) {
-      return json({ ok: false, error: `No GBP market data returned for ${symbol}.` }, 500);
+      return json({ ok: false, error: `No GBP market data returned for ${decisionSymbol}.` }, 500);
     }
 
     const currentPrice = Number(market.gbp);
     const rules = MODES[mode] || MODES.balanced;
-    const active = state.active_position;
     let action = 'WAIT';
     let message = '';
     let trade = null;
@@ -61,7 +65,7 @@ export async function onRequest(context) {
       const entry = Number(active.entry_price);
       const potBefore = Number(state.trading_pot_pence || STARTING_POT_PENCE);
       const pnlPct = ((currentPrice - entry) / entry) * 100;
-      const pnlPence = Math.round(potBefore * (pnlPct / 100));
+      const { feePence, pnlPence } = calculateSimulatedPnl(potBefore, pnlPct);
       const potAfterRaw = Math.max(0, potBefore + pnlPence);
 
       if (pnlPct >= rules.takeProfitPct) {
@@ -69,7 +73,7 @@ export async function onRequest(context) {
         const finalPot = potAfterRaw > STARTING_POT_PENCE ? STARTING_POT_PENCE : potAfterRaw;
         const newVault = Number(state.profit_vault_pence || 0) + skimmed;
         trade = await insertTrade(db, {
-          symbol,
+          symbol: decisionSymbol,
           action: 'TAKE_PROFIT',
           entry_price: entry,
           exit_price: currentPrice,
@@ -78,8 +82,8 @@ export async function onRequest(context) {
           pnl_pence: pnlPence,
           pnl_pct: pnlPct,
           reason: skimmed > 0
-            ? `Take-profit hit at ${pnlPct.toFixed(2)}%. Skimmed ${skimmed}p into vault and reset pot to £10.`
-            : `Take-profit hit at ${pnlPct.toFixed(2)}%. Pot stayed below £10, so no vault skim was made.`,
+            ? `Take-profit hit at ${pnlPct.toFixed(2)}%. Simulated fees ${feePence}p. Skimmed ${skimmed}p into vault and reset pot to £10.`
+            : `Take-profit hit at ${pnlPct.toFixed(2)}%. Simulated fees ${feePence}p. Pot stayed below £10, so no vault skim was made.`,
           mode
         });
         await db.prepare(`
@@ -89,11 +93,11 @@ export async function onRequest(context) {
         `).bind(finalPot, newVault).run();
         action = 'TAKE_PROFIT';
         message = skimmed > 0
-          ? `Paper take-profit hit on ${PAIRS[symbol]} at £${currentPrice.toFixed(2)}. Profit was skimmed into the vault; trading pot reset to £10.`
-          : `Paper take-profit hit on ${PAIRS[symbol]} at £${currentPrice.toFixed(2)}. Trading pot is now £${(finalPot / 100).toFixed(2)}.`;
+          ? `Paper take-profit hit on ${PAIRS[decisionSymbol]} at £${currentPrice.toFixed(2)}. Profit was skimmed into the vault; trading pot reset to £10.`
+          : `Paper take-profit hit on ${PAIRS[decisionSymbol]} at £${currentPrice.toFixed(2)}. Trading pot is now £${(finalPot / 100).toFixed(2)}.`;
       } else if (pnlPct <= rules.stopLossPct) {
         trade = await insertTrade(db, {
-          symbol,
+          symbol: decisionSymbol,
           action: 'STOP_LOSS',
           entry_price: entry,
           exit_price: currentPrice,
@@ -101,7 +105,7 @@ export async function onRequest(context) {
           pot_after_pence: potAfterRaw,
           pnl_pence: pnlPence,
           pnl_pct: pnlPct,
-          reason: `Stop-loss hit at ${pnlPct.toFixed(2)}%. Trading pot reduced; no vault movement.`,
+          reason: `Stop-loss hit at ${pnlPct.toFixed(2)}%. Simulated fees ${feePence}p. Trading pot reduced; no vault movement.`,
           mode
         });
         await db.prepare(`
@@ -110,10 +114,10 @@ export async function onRequest(context) {
           WHERE id = 'main'
         `).bind(potAfterRaw).run();
         action = 'STOP_LOSS';
-        message = `Paper stop-loss hit on ${PAIRS[symbol]} at £${currentPrice.toFixed(2)}. Trading pot is now £${(potAfterRaw / 100).toFixed(2)}.`;
+        message = `Paper stop-loss hit on ${PAIRS[decisionSymbol]} at £${currentPrice.toFixed(2)}. Trading pot is now £${(potAfterRaw / 100).toFixed(2)}.`;
       } else {
         action = 'HOLD';
-        message = `Holding paper ${PAIRS[symbol]} position. Current unrealised P/L is ${pnlPct.toFixed(2)}%. Take-profit ${rules.takeProfitPct}%, stop-loss ${rules.stopLossPct}%.`;
+        message = `Holding paper ${PAIRS[decisionSymbol]} position. Current unrealised P/L is ${pnlPct.toFixed(2)}%. Take-profit ${rules.takeProfitPct}%, stop-loss ${rules.stopLossPct}%.`;
       }
     } else {
       const signal = chooseSignal({ market, mode });
@@ -156,7 +160,7 @@ export async function onRequest(context) {
       VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))
     `).bind(
       crypto.randomUUID(),
-      symbol,
+      decisionSymbol,
       mode,
       currentPrice,
       Number(market.gbp_24h_change || 0),

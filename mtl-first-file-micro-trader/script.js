@@ -53,8 +53,10 @@ const els = {
 let connectedWallet = '';
 let appBusy = false;
 let lastAutoRefreshAt = 0;
+let authPromptPromise = null;
 
 const LOCAL_STORE_KEY = 'goosegrid.microTrader.localState.v2';
+const ACCESS_TOKEN_KEY = 'goosegrid.microTrader.accessToken';
 const COINGECKO_MARKETS_URL = 'https://api.coingecko.com/api/v3/coins/markets?vs_currency=gbp&ids=bitcoin,ethereum,solana&order=market_cap_desc&per_page=3&page=1&sparkline=false&price_change_percentage=24h';
 
 const formatGBP = (pence) => `£${(Number(pence || 0) / 100).toFixed(2)}`;
@@ -69,12 +71,31 @@ const isLikelyBitcoinAddress = (addr) => /^(bc1)[ac-hj-np-z02-9]{11,87}$/i.test(
 const isLikelySolanaAddress = (addr) => /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(String(addr || '').trim());
 const isLikelyPublicCryptoAddress = (addr) => isLikelyEvmAddress(addr) || isLikelyBitcoinAddress(addr) || isLikelySolanaAddress(addr);
 
-async function api(path, options = {}) {
+async function requestAccessToken() {
+  if (!authPromptPromise) {
+    authPromptPromise = Promise.resolve().then(() => {
+      const token = window.prompt('GooseGrid is private. Paste your access token to continue:');
+      if (token) sessionStorage.setItem(ACCESS_TOKEN_KEY, token.trim());
+      return token?.trim() || '';
+    }).finally(() => {
+      authPromptPromise = null;
+    });
+  }
+  return authPromptPromise;
+}
+
+async function api(path, options = {}, retryAuth = true) {
+  const token = sessionStorage.getItem(ACCESS_TOKEN_KEY) || '';
   const res = await fetch(path, {
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...(token ? { 'X-Bot-Token': token } : {}) },
     ...options
   });
   const data = await res.json().catch(() => ({}));
+  if (res.status === 401 && retryAuth) {
+    sessionStorage.removeItem(ACCESS_TOKEN_KEY);
+    const nextToken = await requestAccessToken();
+    if (nextToken) return api(path, options, false);
+  }
   if (!res.ok || data.ok === false) {
     const error = new Error(data.error || `Request failed: ${res.status}`);
     error.d1Missing = /D1 binding missing/i.test(error.message);
@@ -335,7 +356,7 @@ function renderMarkets(markets, source = '') {
     `;
   }).join('');
   els.marketCards.innerHTML = rows || '<p>No market data yet.</p>';
-  els.marketUpdated.textContent = ({ coingecko: 'Live-ish', cache: 'Cached', 'stale-cache': 'Stale cache' }[source]) || 'Live-ish';
+  els.marketUpdated.textContent = ({ coinbase: 'Coinbase live', cache: 'Cached', 'stale-cache': 'Stale cache' }[source]) || 'Live-ish';
 }
 
 function renderTrades(trades) {
